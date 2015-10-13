@@ -1,7 +1,7 @@
 Package: HIBAG
 Type: Package
 Title: HLA Genotype Imputation with Attribute Bagging
-Version: 1.6.0
+Version: 1.7.0
 Date: 2015-09-12
 Depends: R (>= 2.14.0)
 Imports: methods
