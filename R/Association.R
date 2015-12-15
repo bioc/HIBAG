@@ -34,12 +34,13 @@
 
 hlaAssocTest <- function(hla, formula, data,
     model=c("dominant", "additive", "recessive", "genotype"),
-    model.fit=c("glm"), showOR=FALSE, verbose=TRUE, ...)
+    model.fit=c("glm"), use.prob=FALSE, showOR=FALSE, verbose=TRUE, ...)
 {
     stopifnot(inherits(hla, "hlaAlleleClass"))
     stopifnot(inherits(formula, "formula"))
     model <- match.arg(model)
     model.fit <- match.arg(model.fit)
+    stopifnot(is.logical(use.prob), length(use.prob)==1L)
     stopifnot(is.logical(showOR), length(showOR)==1L)
     if (missing(data)) 
         data <- environment(formula)
@@ -56,6 +57,12 @@ hlaAssocTest <- function(hla, formula, data,
     y <- data[[yv]]
     if (is.null(y))
         stop(sprintf("Dependent variable '%s' does not exist in `data`.", yv))
+
+    if (isTRUE(use.prob))
+    {
+        if (is.null(hla$value$prob))
+            stop("There is no posterior probability.")
+    }
 
     # ans
     allele <- with(hla$value, hlaUniqueAllele(c(allele1, allele2)))
@@ -88,11 +95,15 @@ hlaAssocTest <- function(hla, formula, data,
                         b <- sapply(c(FALSE, TRUE), function(i) mean(yy[v==i], na.rm=TRUE))
                 },
             additive = {
-                    v <- with(hla$value, (allele1==s) + (allele2==s))
-                    x <- c(sum(v==0L, na.rm=TRUE), sum(v==1L, na.rm=TRUE),
-                        sum(v==2L, na.rm=TRUE))
+                    x <- with(hla$value, c(
+                        sum(c(allele1, allele2) != s, na.rm=TRUE),
+                        sum(c(allele1, allele2) == s, na.rm=TRUE)))
                     if (flag)
-                        b <- sapply(c(0L,1L,2L), function(i) mean(yy[v==i], na.rm=TRUE))
+                    {
+                        z <- with(hla$value, c(allele1, allele2) == s)
+                        b <- c(mean(c(yy,yy)[!z], na.rm=TRUE),
+                            mean(c(yy,yy)[z], na.rm=TRUE))
+                    }
                 },
             recessive = {
                     v <- with(hla$value, (allele1==s) & (allele2==s))
@@ -105,7 +116,7 @@ hlaAssocTest <- function(hla, formula, data,
                     x <- c(sum(v==0L, na.rm=TRUE), sum(v==1L, na.rm=TRUE),
                         sum(v==2L, na.rm=TRUE))
                     if (flag)
-                        b <- sapply(c(0L,1L,2L), function(i) mean(yy[v==i], na.rm=TRUE))
+                        b <- sapply(0:2, function(i) mean(yy[v==i], na.rm=TRUE))
                 }
         ))
         if (flag)
@@ -119,7 +130,7 @@ hlaAssocTest <- function(hla, formula, data,
 
     switch(model,
         dominant  = { colnames(mat) <- c("[-/-]", "[-/h,h/h]") },
-        additive  = { colnames(mat) <- c("[-/-]", "[-/h]", "[h/h]") },
+        additive  = { colnames(mat) <- c("[-]", "[h]") },
         recessive = { colnames(mat) <- c("[-/-,-/h]", "[h/h]") },
         genotype  = { colnames(mat) <- c("[-/-]", "[-/h]", "[h/h]") }
     )
@@ -137,12 +148,14 @@ hlaAssocTest <- function(hla, formula, data,
     if (is.factor(y))
     {
         w1 <- w2 <- w3 <- rep(NaN, length(allele))
+        yy <- y
+        if (model == "additive") yy <- rep(yy, 2L)
         for (i in seq_along(allele))
         {
             s <- allele[i]
             x <- switch(model,
                 dominant = with(hla$value, (allele1==s) | (allele2==s)),
-                additive = with(hla$value, (allele1==s) + (allele2==s)),
+                additive = with(hla$value, c(allele1, allele2) == s),
                 recessive = with(hla$value, (allele1==s) & (allele2==s)),
                 genotype = {
                     v <- with(hla$value, (allele1==s) + (allele2==s)) + 1L
@@ -152,13 +165,13 @@ hlaAssocTest <- function(hla, formula, data,
                 }  
             )
             x <- as.factor(x)
-            a <- try(v <- suppressWarnings(chisq.test(x, y)), silent=TRUE)
+            a <- try(v <- suppressWarnings(chisq.test(x, yy)), silent=TRUE)
             if (!inherits(a, "try-error"))
             {
                 w1[i] <- v$statistic
                 w2[i] <- v$p.value
             }
-            a <- try(v <- fisher.test(x, y), silent=TRUE)
+            a <- try(v <- fisher.test(x, yy), silent=TRUE)
             if (!inherits(a, "try-error"))
                 w3[i] <- a$p.value
         }
@@ -238,11 +251,12 @@ hlaAssocTest <- function(hla, formula, data,
             if (is.null(param$family))
             {
                 if (is.factor(y))
-                    cat("Logistic regression:\n")
+                    cat("Logistic regression")
                 else
-                    cat("Linear regression:\n")
+                    cat("Linear regression")
             } else
-                cat("Regression: ", format(param$family)[1L], "\n", sep="")
+                cat("Regression [", format(param$family)[1L], "]", sep="")
+            cat(" (", model, " model):\n", sep="")
         }
 
         mat <- vector("list", length(allele))
@@ -263,9 +277,23 @@ hlaAssocTest <- function(hla, formula, data,
 
             a <- try({
                 if (is.null(param$family) & is.factor(y))
-                    m <- glm(formula, data=data, family=binomial, ...)
-                else
-                    m <- glm(formula, data=data, ...)
+                {
+                    if (!isTRUE(use.prob))
+                    {
+                        m <- glm(formula, data=data, family=binomial, ...)
+                    } else {
+                        prob <- hla$value$prob
+                        m <- glm(formula, data=data, family=binomial, weights=prob, ...)
+                    }
+                } else {
+                    if (!isTRUE(use.prob))
+                    {
+                        m <- glm(formula, data=data, ...)
+                    } else {
+                        prob <- hla$value$prob
+                        m <- glm(formula, data=data, weights=prob, ...)
+                    }
+                }
                 NULL
             }, silent=TRUE)
             if (!inherits(a, "try-error"))
@@ -326,6 +354,15 @@ hlaAssocTest <- function(hla, formula, data,
             ans <- cbind(ans, mat)
         } else
             warning(model.fit, " does not work.", immediate.=TRUE)
+    } else {
+        if (verbose) cat(model, "model:\n")
+        if (isTRUE(use.prob))
+        {
+            warning(ifelse(is.factor(y),
+                "Chi-squared and Fisher's exact tests do not use posterior probabilities.",
+                "T test or ANOVA does not use posterior probabilities."),
+                immediate.=TRUE)
+        }
     }
 
     if (verbose)
@@ -333,8 +370,8 @@ hlaAssocTest <- function(hla, formula, data,
         v <- ans
         p <- v[, pidx]
         x <- sprintf("%.3f", as.matrix(p)); dim(x) <- dim(p)
-        x[p < 0.0001] <- "< 0.0001"
-        x[(p >= 0.0001) & (p < 0.001)] <- "< 0.001"
+        x[p < 0.0001] <- "<0.0001"
+        x[(p >= 0.0001) & (p < 0.001)] <- "<0.001"
         flag <- (p >= 0.001) & (p <= 0.05)
         flag[is.na(flag)] <- FALSE
         if (any(flag, na.rm=TRUE))
