@@ -1,16 +1,22 @@
 \name{hlaAssocTest}
 \alias{hlaAssocTest}
+\alias{hlaAssocTest.hlaAlleleClass}
+\alias{hlaAssocTest.hlaAASeqClass}
 \title{
     Statistical Association Tests
 }
 \description{
-    To perform statistical association tests via Pearson's Chi-squared test,
-Fisher's exact test, logistic regression, random effect models.
+    Perform statistical association tests via Pearson's Chi-squared test,
+Fisher's exact test and logistic regressions.
 }
 \usage{
-hlaAssocTest(hla, formula, data,
+\method{hlaAssocTest}{hlaAlleleClass}(hla, formula, data,
     model=c("dominant", "additive", "recessive", "genotype"),
     model.fit=c("glm"), use.prob=FALSE, showOR=FALSE, verbose=TRUE, ...)
+\method{hlaAssocTest}{hlaAASeqClass}(hla, formula, data,
+    model=c("dominant", "additive", "recessive", "genotype"),
+    model.fit=c("glm"), use.prob=FALSE, showOR=FALSE, show.all=FALSE,
+    verbose=TRUE, ...)
 }
 \arguments{
     \item{hla}{an object of \code{\link{hlaAlleleClass}}}
@@ -26,17 +32,28 @@ hlaAssocTest(hla, formula, data,
     \item{use.prob}{if \code{TRUE}, use the posterior probabilities as weights
         in \code{glm} models}
     \item{showOR}{show odd ratio (OR) instead of log OR if \code{TRUE}}
+    \item{show.all}{if \code{TRUE}, show both significant and non-significant
+        results; if \code{FALSE}, only show significant results}
     \item{verbose}{if TRUE, show information}
     \item{...}{optional arguments to \code{\link{glm}} or \code{nlme} call}
 }
 \details{
 \tabular{ll}{
     \bold{model} \tab \bold{description (given a specific HLA allele h)} \cr
-    dominant  \tab [-/-] vs. [-/h,h/h] \cr
-    additive  \tab [-] vs. [h] in Chi-squared and Fisher's exact test, the allele dosage in regressions (0: -/-, 1: -/h, 2: h/h) \cr
-    recessive \tab [-/-,-/h] vs. [h/h] \cr
-    genotype  \tab [-/-], [-/h], [h/h] \cr
+    dominant  \tab [-/-] vs. [-/h,h/h] (0 vs. 1 in design matrix) \cr
+    additive  \tab [-] vs. [h] in Chi-squared and Fisher's exact test,
+        the allele dosage in regressions (0: -/-, 1: -/h, 2: h/h) \cr
+    recessive \tab [-/-,-/h] vs. [h/h] (0 vs. 1 in design matrix) \cr
+    genotype  \tab [-/-], [-/h], [h/h] (0 vs. 1 in design matrix) \cr
 }
+
+    In allelic associations, Chi-squared and Fisher exact tests are preformed
+on the cross tabulation, which is constructed according to the specified
+model (dominant, additive, recessive and gneotype).
+
+    In amino acid associations, Fisher exact test is performed on a cross
+tabulation with the numbers of each amino acid stratified by response variable
+(e.g., disease status).
 
     In linear and logistic regressions, 95\% confidence intervals are
 calculated based on asymptotic normality. The option \code{use.prob=TRUE} might
@@ -68,11 +85,10 @@ be useful in the sensitivity analysis.
 }
 \author{Xiuwen Zheng}
 \seealso{
-    \code{\link{summary.hlaAttrBagClass}}
+    \code{\link{hlaConvSequence}}, \code{\link{summary.hlaAASeqClass}}
 }
 
 \examples{
-# make a "hlaAlleleClass" object
 hla.id <- "A"
 hla <- hlaAllele(HLA_Type_Table$sample.id,
     H1 = HLA_Type_Table[, paste(hla.id, ".1", sep="")],

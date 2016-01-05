@@ -1,8 +1,8 @@
-\name{hlaSeqClass}
-\alias{hlaSeqClass}
-\title{Class of HLA Sequence Type}
+\name{hlaAASeqClass}
+\alias{hlaAASeqClass}
+\title{Class of HLA Amino Acid Sequence Type}
 \description{
-    The definition of a class for HLA sequence genotype.
+    The definition of a class for HLA protein amino acid sequences.
 }
 \value{
     There are following components:
@@ -11,6 +11,8 @@
     \item{pos.end}{the end position in basepair}
     \item{value}{a data frame}
     \item{assembly}{the human genome reference, such like "hg19"}
+    \item{start.position}{the start position}
+    \item{reference}{reference sequence}
 
     The component \code{value} includes:
     \item{sample.id}{sample ID}

@@ -28,11 +28,58 @@
 # Association Tests
 #
 
+# Define a generic function
+hlaAssocTest <- function(hla, ...)
+{
+    UseMethod("hlaAssocTest", hla)
+}
+
+
+# Print out the results
+.assoc_show <- function(mat, pval.idx, show.all)
+{
+    v <- mat
+    p <- as.matrix(v[, pval.idx])
+    x <- sprintf("%.3f ", p); dim(x) <- dim(p)
+    x[p < 0.001] <- "<0.001*"
+
+    flag <- (p >= 0.001) & (p <= 0.05)
+    flag[is.na(flag)] <- FALSE
+    if (any(flag, na.rm=TRUE))
+        x[flag] <- gsub(" ", "*", x[flag], fixed=TRUE)
+    flag <- !is.finite(p)
+    if (any(flag, na.rm=TRUE))
+        x[flag] <- "."
+
+    v[, pval.idx] <- x
+    s <- format(v, digits=4L)
+    s[is.na(v)] <- "."
+    for (i in pval.idx)
+        s[, i] <- as.character(s[, i])
+
+    f <- apply(p, 1L, function(x) any(x <= 0.05, na.rm=TRUE))
+    v <- NULL
+    if (sum(f) > 0L)
+    {
+        v <- rbind(v, s[f, ])
+        if ((sum(f) < nrow(s)) & (sum(!f) > 0L) & show.all)
+            v <- rbind(v, "-----"=rep("", ncol(s)))
+    }
+    if ((sum(!f) > 0L) & show.all)
+        v <- rbind(v, s[!f, ])
+    print(v)
+
+    invisible()
+}
+
+
+
 ##########################################################################
 # Fit statistical models in assocation tests for HLA alleles
 #
 
-hlaAssocTest <- function(hla, formula, data,
+# Association tests are applied to HLA classical alleles
+hlaAssocTest.hlaAlleleClass <- function(hla, formula, data,
     model=c("dominant", "additive", "recessive", "genotype"),
     model.fit=c("glm"), use.prob=FALSE, showOR=FALSE, verbose=TRUE, ...)
 {
@@ -42,8 +89,14 @@ hlaAssocTest <- function(hla, formula, data,
     model.fit <- match.arg(model.fit)
     stopifnot(is.logical(use.prob), length(use.prob)==1L)
     stopifnot(is.logical(showOR), length(showOR)==1L)
-    if (missing(data)) 
+    if (missing(data))
+    {
         data <- environment(formula)
+    } else if (is.data.frame(data))
+    {
+        if (nrow(data) != nrow(hla$value))
+            stop("'hla' and 'data' must have the same length.")
+    }
 
     # formula
     fa <- format(formula)
@@ -57,6 +110,8 @@ hlaAssocTest <- function(hla, formula, data,
     y <- data[[yv]]
     if (is.null(y))
         stop(sprintf("Dependent variable '%s' does not exist in `data`.", yv))
+    else if (length(y) != nrow(hla$value))
+        stop(sprintf("'hla' and '%s' must have the same length.", yv))
 
     if (isTRUE(use.prob))
     {
@@ -64,8 +119,6 @@ hlaAssocTest <- function(hla, formula, data,
             stop("There is no posterior probability.")
     }
 
-    # ans
-    allele <- with(hla$value, hlaUniqueAllele(c(allele1, allele2)))
 
     # need proportion (%)
     flag <- is.factor(y)
@@ -81,6 +134,9 @@ hlaAssocTest <- function(hla, formula, data,
             if (flag) yy <- as.integer(y) - 1L
         }
     }
+
+    # ans
+    allele <- with(hla$value, hlaUniqueAllele(c(allele1, allele2)))
 
     # genotype distribution: dominant, additive, recessive, genotype
     mat <- mat2 <- NULL
@@ -366,18 +422,258 @@ hlaAssocTest <- function(hla, formula, data,
     }
 
     if (verbose)
+        .assoc_show(ans, pidx, TRUE)
+
+    invisible(ans)
+}
+
+
+
+# Association tests are applied to HLA protein sequences
+hlaAssocTest.hlaAASeqClass <- function(hla, formula, data,
+    model=c("dominant", "additive", "recessive", "genotype"),
+    model.fit=c("glm"), use.prob=FALSE, showOR=FALSE, show.all=FALSE,
+    verbose=TRUE, ...)
+{
+    stopifnot(inherits(hla, "hlaAASeqClass"))
+    stopifnot(inherits(formula, "formula"))
+    model <- match.arg(model)
+    model.fit <- match.arg(model.fit)
+    stopifnot(is.logical(use.prob), length(use.prob)==1L)
+    stopifnot(is.logical(showOR), length(showOR)==1L)
+    stopifnot(is.logical(show.all), length(show.all)==1L)
+    if (missing(data))
     {
-        v <- ans
-        p <- v[, pidx]
-        x <- sprintf("%.3f", as.matrix(p)); dim(x) <- dim(p)
-        x[p < 0.0001] <- "<0.0001"
-        x[(p >= 0.0001) & (p < 0.001)] <- "<0.001"
-        flag <- (p >= 0.001) & (p <= 0.05)
-        flag[is.na(flag)] <- FALSE
-        if (any(flag, na.rm=TRUE))
-            x[flag] <- paste("*", x[flag])
-        v[, pidx] <- x
-        print(v, digits=4L)
+        data <- environment(formula)
+    } else if (is.data.frame(data))
+    {
+        if (nrow(data) != nrow(hla$value))
+            stop("'hla' and 'data' must have the same length.")
     }
+
+    # formula
+    fa <- format(formula)
+    s <- unlist(strsplit(fa, "~", fixed=TRUE))
+    if (length(s) != 2L)
+        stop("Invalid `formula`: ", fa)
+    if (s[1L] == "")
+        stop("No dependent variable in `formula`: ", fa)
+
+    yv <- trimws(s[1L])
+    y <- data[[yv]]
+    if (is.null(y))
+        stop(sprintf("Dependent variable '%s' does not exist in `data`.", yv))
+    else if (length(y) != nrow(hla$value))
+        stop(sprintf("'hla' and '%s' must have the same length.", yv))
+
+    if (isTRUE(use.prob))
+    {
+        if (is.null(hla$value$prob))
+            stop("There is no posterior probability.")
+    }
+
+
+    # need proportion (%)
+    flag <- is.factor(y)
+    if (flag)
+    {
+        flag <- (nlevels(y) == 2L)
+        if (flag) yy <- as.integer(y) - 1L
+    } else {
+        if (all(y %in% c(0,1), na.rm=TRUE))
+        {
+            y <- as.factor(y)
+            flag <- (nlevels(y) == 2L)
+            if (flag) yy <- as.integer(y) - 1L
+        }
+    }
+
+    # regression
+    vars <- attr(terms(formula), "term.labels")
+    if (length(vars) > 0L)
+    {
+        if (!is.element("h", vars))
+        {
+            stop("Independent variable 'h' should be in `formula` ",
+                "to include HLA genotypes, like '", fa, " + h'.")
+        }
+        if (!is.data.frame(data))
+            stop("'data' should be `data.frame`.")
+    }
+
+
+    if (is.factor(y))
+    {
+        if (length(vars) > 0L)
+        {
+            param <- list(...)
+            if (verbose)
+            {
+                if (is.null(param$family))
+                    cat("Logistic regression")
+                else
+                    cat("Regression [", format(param$family)[1L], "]", sep="")
+               cat(" (", model, " model):\n", sep="")
+            }
+        }
+
+        y2 <- rep(y, 2L)
+        matseq <- .matrix_sequence(c(hla$value$allele1, hla$value$allele2))
+        pos <- 1L - hla$start.position + 1L
+
+        z <- apply(matseq, 1L, FUN=function(x)
+        {
+            x[x == 42] <- NA  # *
+            xx <- as.factor(x)
+            xl <- as.integer(levels(xx))
+            s <- rawToChar(as.raw(xl))
+            a <- try(v <- fisher.test(xx, y2), silent=TRUE)
+            pos <<- pos + 1L
+            i <- pos + hla$start.position - 2L
+
+            rv <- data.frame(
+                pos = pos - 1L,
+                num = sum(!is.na(x)),
+                ref = substr(hla$reference, i, i),
+                poly = paste(unlist(strsplit(s, "", fixed=TRUE)), collapse=","),
+                fisher.p = ifelse(inherits(a, "try-error"), NaN, a$p.value),
+                stringsAsFactors=FALSE)
+
+            if (length(vars) > 0L)
+            {
+                if (length(xl) == 2L) xl <- xl[1L]
+                a1 <- x[seq.int(1L, length(x)/2)]
+                a2 <- x[seq.int(length(x)/2 + 1L, length(x))]
+
+                tv <- NULL
+                for (k in xl)
+                {
+                    if (k == 45L)
+                    {   # -, reference, - vs. others
+                        data$h <- switch(model,
+                            dominant  = as.integer((a1!=k) | (a2!=k)),
+                            additive  = (a1!=k) + (a2!=k),
+                            recessive = as.integer((a1!=k) & (a2!=k)),
+                            genotype = as.factor((a1!=k) + (a2!=k))
+                        )
+                    } else {
+                        data$h <- switch(model,
+                            dominant  = as.integer((a1==k) | (a2==k)),
+                            additive  = (a1==k) + (a2==k),
+                            recessive = as.integer((a1==k) & (a2==k)),
+                            genotype = as.factor((a1==k) + (a2==k))
+                        )
+                    }
+
+                    a <- try({
+                        if (!isTRUE(use.prob))
+                        {
+                            m <- glm(formula, data=data, family=binomial, ...)
+                        } else {
+                            prob <- hla$value$prob
+                            m <- glm(formula, data=data, family=binomial,
+                                weights=prob, ...)
+                        }
+                        NULL
+                    }, silent=TRUE)
+
+                    if (!inherits(a, "try-error"))
+                    {
+                        summ <- summary(m)
+                        z <- summ$coefficients
+                        if (nrow(z) > 1L)
+                        {
+                            ci <- confint.default(m)
+                            v <- cbind(z[-1L,1L], ci[-1L,1L], ci[-1L,2L],
+                                z[-1L,4L])
+                            v <- c(t(v))
+                            nm <- rownames(z)[-1L]
+                            names(v) <- c(rbind(paste0(nm, ".est"),
+                                paste0(nm, ".25%"), paste0(nm, ".75%"),
+                                paste0(nm, ".pval")))
+                            if (isTRUE(showOR))
+                            {
+                                if (model != "genotype")
+                                    nm <- c("h.est", "h.25%", "h.75%")
+                                else
+                                    nm <- c("h1.est", "h1.25%", "h1.75%",
+                                        "h2.est", "h2.25%", "h2.75%")
+                                j <- match(nm, names(v))
+                                nm <- names(v)
+                                nm[j] <- paste0(nm[j], "_OR")
+                                v[j] <- exp(v[j])
+                                names(v) <- nm
+                            }
+
+                            tv <- rbind(tv, v)
+                        }
+                    }
+                }
+                if (!is.null(tv))
+                {
+                    if (!is.data.frame(tv))
+                    {
+                        rownames(tv) <- NULL
+                        tv <- as.data.frame(tv)
+                    }
+                    xl <- sapply(as.integer(levels(xx)), function(x)
+                        rawToChar(as.raw(x)))
+                    tv <- cbind(
+                        amino.acid = sapply(seq_along(xl), function(i)
+                            if (xl[i] == "-")
+                                paste(xl[i], "vs", paste(xl[-i], collapse=","))
+                            else
+                                paste(paste(xl[-i], collapse=","), "vs", xl[i])
+                            ),
+                        tv, stringsAsFactors=FALSE)
+                }
+
+                n <- 0L
+                if (!is.null(tv)) n <- nrow(tv)
+                if (n > 0L)
+                {
+                    if (n > 1L)
+                    {
+                        rv <- as.data.frame(sapply(rv, function(x) rep(x, n),
+                            simplify=FALSE), stringsAsFactors=FALSE)
+                    }
+                    rv <- cbind(rv, tv)
+                }
+            }
+
+            rv
+        })
+
+        ans <- data.frame(
+            pos = unlist(sapply(z, function(x) x$pos)),
+            num = unlist(sapply(z, function(x) x$num)),
+            ref = unlist(sapply(z, function(x) x$ref)),
+            poly = unlist(sapply(z, function(x) x$poly)),
+            fisher.p = unlist(sapply(z, function(x) x$fisher.p)),
+            stringsAsFactors=FALSE)
+
+        n <- max(lengths(z))
+        pidx <- c(5L)
+        if (n > 5L)
+        {
+            for (i in 6L:n)
+            {
+                ans <- cbind(ans, unlist(sapply(z, function(x)
+                    if (i <= ncol(x)) x[,i] else NA
+                )))
+            }
+            names(ans) <- names(z[[match(n, lengths(z))]])
+            pidx <- c(pidx, seq.int(7L, n, 4L) + 3L)
+        }
+
+        if (verbose)
+            .assoc_show(ans, pidx, show.all)
+
+    } else {
+        stop(sprintf("Dependent variable '%s' should be factor.", yv))
+    }
+
+
+
     invisible(ans)
 }

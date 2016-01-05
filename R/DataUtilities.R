@@ -1133,7 +1133,7 @@ hlaAllele <- function(sample.id, H1, H2, max.resolution="", locus="any",
 hlaAlleleSubset <- function(hla, samp.sel=NULL)
 {
     # check
-    stopifnot(inherits(hla, "hlaAlleleClass") | inherits(hla, "hlaSeqClass"))
+    stopifnot(inherits(hla, "hlaAlleleClass") | inherits(hla, "hlaAASeqClass"))
     stopifnot(is.null(samp.sel) | is.logical(samp.sel) | is.integer(samp.sel))
     if (is.logical(samp.sel))
         stopifnot(length(samp.sel) == dim(hla$value)[1L])
@@ -1674,55 +1674,6 @@ summary.hlaAlleleClass <- function(object, verbose=TRUE, ...)
 
     # return
     invisible(rv)
-}
-
-
-#######################################################################
-# Summary a "hlaSeqClass" object
-#
-
-summary.hlaSeqClass <- function(object, head=100L, verbose=TRUE, ...)
-{
-    # check
-    stopifnot(inherits(object, "hlaSeqClass"))
-    stopifnot(is.logical(verbose), length(verbose)==1L)
-
-    aa <- c(object$value$allele1, object$value$allele2)
-    lst <- sapply(aa, function(s) as.integer(charToRaw(s)),
-        simplify=FALSE, USE.NAMES=FALSE)
-    n <- lengths(lst)
-    lst <- sapply(lst, function(a,n) a[seq_len(n)], n=max(n))
-    m <- matrix(unlist(lst), nrow=max(n))
-
-    level <- unique(c(m))
-    level <- level[!is.na(level)]
-    level <- level[order(level)]
-    levelstr <- sapply(level, function(x) rawToChar(as.raw(x)))
-
-    mt <- apply(m, 1, function(x)
-        c(sum(is.finite(x), na.rm=TRUE),
-        sapply(level, function(y) sum(x==y, na.rm=TRUE))))
-    mt <- t(matrix(unlist(mt), nrow=length(level)+1L))
-    colnames(mt) <- c("Num", levelstr)
-
-    if (verbose)
-    {
-        z <- mt
-        storage.mode(z) <- "character"
-        z[z == "0"] <- "."
-        z <- rbind(c("Num", levelstr), z)
-        z <- cbind(c("Pos", seq_len(nrow(z)-1L)), z)
-        z <- format(z, justify="right")
-        if (head < 1L) head <- 1L
-        head <- head + 1L
-        for (i in 1L:min(head, nrow(z)))
-            cat(z[i, ], "\n")
-        if (nrow(z) > head)
-            cat("......\n")
-    }
-
-    # return
-    invisible(mt)
 }
 
 
@@ -2281,113 +2232,4 @@ hlaReport <- function(object, export.fn="",
     }
 
     invisible()
-}
-
-
-
-##########################################################################
-# Convert HLA Alleles to Amino Acid Sequences
-#
-
-hlaConvSequence <- function(hla, locus=NULL, method=c("AminoAcid_v3.22"),
-    replace=NULL)
-{
-    stopifnot(is.character(hla) | inherits(hla, "hlaAlleleClass"))
-    method <- match.arg(method)
-    stopifnot(is.null(replace) | is.character(replace))
-    if (is.character(replace))
-    {
-        stopifnot(is.vector(replace))
-        if (is.null(names(replace)))
-        {
-            stop("'replace' should be a character vector with names, ",
-                "like c(\"09:02\"=\"107:01\")")
-        }
-    }
-
-    if (inherits(hla, "hlaAlleleClass"))
-    {
-        if (!is.null(locus))
-            warning("'locus' should be NULL.")
-        locus <- hla$locus
-    }
-
-    hlalist <- c("A", "B", "C", "DRB1", "DRB3", "DRB4", "DRB5",
-        "DQA1", "DQB1", "DPB1", "DPA1")
-    if (locus %in% hlalist)
-    {
-        if (inherits(hla, "hlaAlleleClass"))
-        {
-            s <- hlaConvSequence(c(hla$value$allele1, hla$value$allele2),
-                locus=hla$locus, method=method, replace=replace)
-            n <- length(s)
-            # result
-            rv <- list(locus = hla$locus,
-                pos.start = hla$locus.pos.start, pos.end = hla$locus.pos.end,
-                value = data.frame(sample.id = hla$value$sample.id,
-                    allele1 = s[seq.int(1L, n/2)],
-                    allele2 = s[seq.int(n/2+1L, n)],
-                    stringsAsFactors=FALSE),
-                assembly = hla$assembly
-            )
-            if (!is.null(hla$value$prob))
-                rv$value$prob <- hla$value$prob
-            class(rv) <- "hlaSeqClass"
-
-        } else {
-            # replace
-            if (is.character(replace))
-            {
-                i <- match(hla, names(replace))
-                hla[!is.na(i)] <- replace[i[!is.na(i)]]
-            }
-
-            if (method == "AminoAcid_v3.22")
-            {
-                .amino_acid <- get(load(system.file("extdata", "Sequence",
-                    "HLA_AminoAcid.RData", package="HIBAG")))
-                .hla_nom <- get(load(system.file("extdata", "Sequence",
-                    "HLA_Nom_v3.22.RData", package="HIBAG")))
-            } else
-                stop("Invalid 'method'.")
-
-            hla <- paste0(locus, "*", hla)
-            rv <- with(.amino_acid, AminoAcid[match(hla, Allele)])
-
-            # G code
-            if (anyNA(rv))
-            {
-                s <- with(.hla_nom$GCode, Allele[match(hla[is.na(rv)], Code)])
-                s <- paste0(locus, "*", sapply(strsplit(s, "/", fixed=TRUE), `[`, i=1L))
-                rv[is.na(rv)] <- with(.amino_acid, AminoAcid[match(s, Allele)])
-            }
-            if (anyNA(rv))
-            {
-                s <- with(.hla_nom$GCode, Allele[match(paste0(hla[is.na(rv)], "G"), Code)])
-                s <- paste0(locus, "*", sapply(strsplit(s, "/", fixed=TRUE), `[`, i=1L))
-                rv[is.na(rv)] <- with(.amino_acid, AminoAcid[match(s, Allele)])
-            }
-
-            # P code
-            if (anyNA(rv))
-            {
-                s <- with(.hla_nom$PCode, Allele[match(hla[is.na(rv)], Code)])
-                s <- paste0(locus, "*", sapply(strsplit(s, "/", fixed=TRUE), `[`, i=1L))
-                rv[is.na(rv)] <- with(.amino_acid, AminoAcid[match(s, Allele)])
-            }
-            if (anyNA(rv))
-            {
-                s <- with(.hla_nom$PCode, Allele[match(paste0(hla[is.na(rv)], "P"), Code)])
-                s <- paste0(locus, "*", sapply(strsplit(s, "/", fixed=TRUE), `[`, i=1L))
-                rv[is.na(rv)] <- with(.amino_acid, AminoAcid[match(s, Allele)])
-            }
-
-            if (anyNA(rv))
-                message("No matching: ", paste(hla[is.na(rv)], collapse=", "))
-        }
-        rv
-    } else {
-        s <- ifelse(inherits(hla, "hlaAlleleClass"), "hla$locus", "'locus'")
-        stop(s, " should be one of ", paste(hlalist, collapse=", "))
-    }
 }
