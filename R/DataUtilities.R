@@ -1149,6 +1149,11 @@ hlaAlleleSubset <- function(hla, samp.sel=NULL)
         assembly = hla$assembly
     )
 
+    if (!is.null(hla$start.position))
+        rv$start.position <- hla$start.position
+    if (!is.null(hla$reference))
+        rv$reference <- hla$reference
+
     if (!is.null(hla$postprob))
     {
         rv$postprob <- hla$postprob[, samp.sel]
@@ -1552,7 +1557,7 @@ hlaSplitAllele <- function(HLA, train.prop=0.5)
     H <- HLA
     while (dim(H$value)[1L] > 0L)
     {
-        v <- summary(H, show=FALSE)
+        v <- summary(H, verbose=FALSE)
         if (dim(v)[1L] > 1L)
         {
             v <- v[order(v[, "count"]), ]
