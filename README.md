@@ -24,7 +24,7 @@ Release Version: 1.6.0
 
 [http://www.bioconductor.org/packages/release/bioc/html/HIBAG.html](http://www.bioconductor.org/packages/release/bioc/html/HIBAG.html)
 
-Development Version: 1.7.6
+Development Version: 1.7.7
 
 [http://www.bioconductor.org/packages/devel/bioc/html/HIBAG.html](http://www.bioconductor.org/packages/devel/bioc/html/HIBAG.html)
 
@@ -42,7 +42,7 @@ Dr. Xiuwen Zheng ([zhengx@u.washington.edu](zhengx@u.washington.edu))
 
 ## Pre-fit Model Download
 
-The website (Prof. Bruce S. Weir): [http://www.biostat.washington.edu/~bsweir/HIBAG/](http://www.biostat.washington.edu/~bsweir/HIBAG/)
+[http://www.biostat.washington.edu/~bsweir/HIBAG/](http://www.biostat.washington.edu/~bsweir/HIBAG/)
 
 
 ## Citation
