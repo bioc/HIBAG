@@ -1,7 +1,7 @@
 HLA Genotype Imputation with Attribute Bagging
 ======
 
-Kernel Version: v1.3
+Kernel Version: v1.4
 
 ![GPLv3](http://www.gnu.org/graphics/gplv3-88x31.png)
 [GNU General Public License, GPLv3](http://www.gnu.org/copyleft/gpl.html)
@@ -20,13 +20,21 @@ HIBAG is a state of the art software package for imputing HLA types using SNP da
 
 ## Bioconductor Package
 
-Release Version: 1.10.0
+Release Version: 1.12.0
 
 [http://www.bioconductor.org/packages/release/bioc/html/HIBAG.html](http://www.bioconductor.org/packages/release/bioc/html/HIBAG.html)
 
 
+### Changes in Bioconductor Version (since v1.14.0):
+
+* Kernel Version: v1.4
+* modify the kernel to support the GPU extension
+* develop a complementary R package ([HIBAG.gpu](https://github.com/zhengxwen/HIBAG.gpu)) for GPU computing
+
+
 ### Changes in Bioconductor Version (since v1.3.0):
 
+* Kernel Version: v1.3
 * optimize the calculation of hamming distance using SSE2 and hardware POPCNT instructions if available
 * hardware POPCNT: 2.4x speedup for large-scale data, compared to the implementation in v1.2.4
 * SSE2 popcount implementation without hardware POPCNT: 1.5x speedup for large-scale data, compared to the implementation in v1.2.4
@@ -39,14 +47,18 @@ Dr. Xiuwen Zheng ([zhengx@u.washington.edu](zhengx@u.washington.edu))
 
 ## Pre-fit Model Download
 
-[http://www.biostat.washington.edu/~bsweir/HIBAG/](http://www.biostat.washington.edu/~bsweir/HIBAG/)
-
 [http://zhengxwen.github.io/HIBAG/](http://zhengxwen.github.io/HIBAG/)
+
+[http://zhengxwen.github.io/HIBAG/hibag_index.html](http://zhengxwen.github.io/HIBAG/hibag_index.html)
+
+Platform-specific models: [http://zhengxwen.github.io/HIBAG/platforms.html](http://zhengxwen.github.io/HIBAG/platforms.html)
+
+or [http://www.biostat.washington.edu/~bsweir/HIBAG/](http://www.biostat.washington.edu/~bsweir/HIBAG/)
 
 
 ## Citation
 
-Zheng, X. *et al*. HIBAG-HLA genotype imputation with attribute bagging. *Pharmacogenomics Journal* 14, 192–200 (2014).
+Zheng, X. *et al*. HIBAG-HLA genotype imputation with attribute bagging. *Pharmacogenomics Journal* 14, 192-200 (2014).
 [http://dx.doi.org/10.1038/tpj.2013.18](http://dx.doi.org/10.1038/tpj.2013.18)
 
 
@@ -76,6 +88,11 @@ curl -L https://github.com/zhengxwen/HIBAG/tarball/master/ -o HIBAG_latest.tar.g
 R CMD INSTALL HIBAG_latest.tar.gz
 ```
 
+
+## Acceleration
+
+### CPU with Intel Intrinsics
+
 * Install the package from the source code with the support of hardware POPCNT (requiring SSE4.2):
 You have to customize the package compilation, see: [CRAN: Customizing-package-compilation](http://cran.r-project.org/doc/manuals/r-release/R-admin.html#Customizing-package-compilation)
 
@@ -89,17 +106,27 @@ CXXFLAGS=-g -O3 -march=native -mtune=native
 Or force to create hardware POPCNT code:
 ```sh
 ## for C code
-CFLAGS=-g -O3 -msse4.2 -mpopcnt
+CFLAGS=-g -O3 -mpopcnt
 ## for C++ code
-CXXFLAGS=-g -O3 -msse4.2 -mpopcnt
+CXXFLAGS=-g -O3 -mpopcnt
 ```
 
 If the package compilation succeeds with hardware POPCNT instructions, you should see a welcome message after loading the package:
 ```
 HIBAG (HLA Genotype Imputation with Attribute Bagging)
-Kernel Version: v1.3
-Supported by Streaming SIMD Extensions (SSE4.2 + hardware POPCNT)
+Kernel Version: v1.4
+Supported by Streaming SIMD Extensions (SSE2 + hardware POPCNT)
 ```
+
+### GPU with OpenCL
+
+* Install [HIBAG.gpu](https://github.com/zhengxwen/HIBAG.gpu) from Github:
+```R
+library("devtools")
+install_github("zhengxwen/HIBAG.gpu")
+```
+Please use `hlaAttrBagging_gpu()` and `hlaPredict_gpu()` for model training and prediction.
+
 
 
 ## Archive

@@ -5,7 +5,7 @@
 #   HIBAG -- HLA Genotype Imputation with Attribute Bagging
 #
 # HIBAG R package, HLA Genotype Imputation with Attribute Bagging
-# Copyright (C) 2011-2015   Xiuwen Zheng (zhengx@u.washington.edu)
+# Copyright (C) 2011-2017   Xiuwen Zheng (zhengx@u.washington.edu)
 # All rights reserved.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -175,6 +175,17 @@
     }
 
     val
+}
+
+
+#######################################################################
+# clear GPU pointer
+#
+
+.hlaClearGPU <- function()
+{
+    .Call(HIBAG_Clear_GPU)
+    invisible()
 }
 
 
@@ -876,9 +887,9 @@ summary.hlaSNPGenoClass <- function(object, show=TRUE, ...)
     if (show)
     {
         cat("SNP genotypes: \n")
-        cat(sprintf("\t%d samples X %d SNPs\n",
+        cat(sprintf("    %d samples X %d SNPs\n",
             length(geno$sample.id), length(geno$snp.id)))
-        cat(sprintf("\tSNPs range from %dbp to %dbp",
+        cat(sprintf("    SNPs range from %dbp to %dbp",
             min(geno$snp.position, na.rm=TRUE),
             max(geno$snp.position, na.rm=TRUE)))
         if (!is.null(geno$assembly))
@@ -887,12 +898,12 @@ summary.hlaSNPGenoClass <- function(object, show=TRUE, ...)
             cat("\n")
 
         # missing rate for SNP
-        cat(sprintf("Missing rate per SNP:\n\t%s\n", fn(rv$mr.snp)))
+        cat(sprintf("Missing rate per SNP:\n    %s\n", fn(rv$mr.snp)))
         # missing rate for sample
-        cat(sprintf("Missing rate per sample:\n\t%s\n", fn(rv$mr.samp)))
+        cat(sprintf("Missing rate per sample:\n    %s\n", fn(rv$mr.samp)))
 
         # minor allele frequency
-        cat(sprintf("Minor allele frequency:\n\t%s\n", fn(rv$maf)))
+        cat(sprintf("Minor allele frequency:\n    %s\n", fn(rv$maf)))
 
         # allele information
         cat("Allelic information:")
@@ -1219,9 +1230,14 @@ hlaCombineAllele <- function(H1, H2)
         assembly = H1$assembly
     )
     rownames(rv$value) <- NULL
+
     if (!is.null(H1$value$prob) & !is.null(H2$value$prob))
     {
         rv$value$prob <- c(H1$value$prob, H2$value$prob)
+    }
+    if (!is.null(H1$value$matching) & !is.null(H2$value$matching))
+    {
+        rv$value$matching <- c(H1$value$matching, H2$value$matching)
     }
 
     if (!is.null(H1$postprob) & !is.null(H2$postprob))
@@ -1709,6 +1725,13 @@ summary.hlaAlleleClass <- function(object, verbose=TRUE, ...)
             z[] <- sprintf("%d (%0.1f%%)", z, prop.table(z)*100)
             names(attr(z, "dimnames")) <- "Posterior probability:"
             print(z)
+        }
+
+        p <- hla$value$matching
+        if (!is.null(p))
+        {
+            cat("Matching statistic:\n")
+            print(summary(p))
         }
     }
 

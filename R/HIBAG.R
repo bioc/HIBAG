@@ -5,7 +5,7 @@
 #   HIBAG -- HLA Genotype Imputation with Attribute Bagging
 #
 # HIBAG R package, HLA Genotype Imputation with Attribute Bagging
-# Copyright (C) 2011-2015   Xiuwen Zheng (zhengx@u.washington.edu)
+# Copyright (C) 2011-2017   Xiuwen Zheng (zhengx@u.washington.edu)
 # All rights reserved.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -73,7 +73,8 @@ hlaAttrBagging <- function(hla, snp, nclassifier=100,
     # SNP genotypes
     samp.flag <- match(samp.id, snp$sample.id)
     snp.geno <- snp$genotype[, samp.flag]
-    storage.mode(snp.geno) <- "integer"
+    if (!is.integer(snp.geno))
+        storage.mode(snp.geno) <- "integer"
 
     tmp.snp.id <- snp$snp.id
     tmp.snp.position <- snp$snp.position
@@ -90,7 +91,7 @@ hlaAttrBagging <- function(hla, snp, nclassifier=100,
         {
             a <- sum(!snpsel)
             if (a > 0L)
-                cat(sprintf("Remove %d monomorphic SNP%s\n", a, .plural(a)))
+                cat(sprintf("Exclude %d monomorphic SNP%s\n", a, .plural(a)))
         }
         tmp.snp.id <- tmp.snp.id[snpsel]
         tmp.snp.position <- tmp.snp.position[snpsel]
@@ -115,7 +116,7 @@ hlaAttrBagging <- function(hla, snp, nclassifier=100,
     H1 <- as.integer(H[1L:n.samp]) - 1L
     H2 <- as.integer(H[(n.samp+1L):(2L*n.samp)]) - 1L
 
-    # create an attribute bagging object
+    # create an attribute bagging object (return an integer)
     ABmodel <- .Call(HIBAG_Training, n.snp, n.samp, snp.geno, n.hla, H1, H2)
 
     # number of variables randomly sampled as candidates at each split
@@ -164,10 +165,10 @@ hlaAttrBagging <- function(hla, snp, nclassifier=100,
     # training ...
     # add new individual classifers
     .Call(HIBAG_NewClassifiers, ABmodel, nclassifier, mtry, prune,
-        verbose, verbose.detail)
+        verbose, verbose.detail, NULL)
 
     # output
-    rv <- list(n.samp = n.samp, n.snp = n.snp, sample.id = samp.id,
+    mod <- list(n.samp = n.samp, n.snp = n.snp, sample.id = samp.id,
         snp.id = tmp.snp.id, snp.position = tmp.snp.position,
         snp.allele = tmp.snp.allele,
         snp.allele.freq = 0.5*rowMeans(snp.geno, na.rm=TRUE),
@@ -176,10 +177,21 @@ hlaAttrBagging <- function(hla, snp, nclassifier=100,
         assembly = as.character(snp$assembly)[1L],
         model = ABmodel,
         appendix = list())
-    if (is.na(rv$assembly)) rv$assembly <- "unknown"
+    if (is.na(mod$assembly)) mod$assembly <- "unknown"
 
-    class(rv) <- "hlaAttrBagClass"
-    rv
+    class(mod) <- "hlaAttrBagClass"
+
+
+    ###################################################################
+    # calculate matching statistic
+    if (verbose)
+        cat("Calculating matching statistic:\n")
+    pd <- hlaPredict(mod, snp.geno, verbose=FALSE)
+    mod$matching <- pd$value$matching
+    if (verbose)
+        print(summary(mod$matching))
+
+    mod
 }
 
 
@@ -278,7 +290,7 @@ hlaParallelAttrBagging <- function(cl, hla, snp, auto.save="",
                     z <- summary(obj, show=FALSE)
                     eval(parse(text="total <<- total + 1L"))
                     cat(date(), sprintf(
-    ", %4d, job %3d, # of SNPs: %g, # of haplotypes: %g, accuracy: %0.1f%%\n",
+        ", %4d, job %3d, # of SNPs: %g, # of haplo: %g, accuracy: %0.1f%%\n",
                         total, as.integer(job), z$info["num.snp", "Mean"],
                         z$info["num.haplo", "Mean"],
                         z$info["accuracy", "Mean"]), sep="")
@@ -575,11 +587,15 @@ predict.hlaAttrBagClass <- function(object, snp, cl=NULL,
     n.samp <- dim(snp)[2L]
     n.hla <- length(object$hla.allele)
     if (verbose)
-        cat(sprintf("Number of samples: %d.\n", n.samp))
+        cat(sprintf("Number of samples: %d\n", n.samp))
 
     # parallel units
     if (is.null(cl))
     {
+        # pointer to functions for an extensible component
+		pm <- list(...)
+		pm <- pm$proc_ptr
+
         # to predict HLA types
         if (type %in% c("response", "response+prob"))
         {
@@ -588,12 +604,12 @@ predict.hlaAttrBagClass <- function(object, snp, cl=NULL,
             if (type == "response")
             {
                 rv <- .Call(HIBAG_Predict_Resp, object$model, as.integer(snp),
-                    n.samp, vote_method, verbose)
-                names(rv) <- c("H1", "H2", "prob")
+                    n.samp, vote_method, verbose, pm)
+                names(rv) <- c("H1", "H2", "prob", "matching")
             } else {
                 rv <- .Call(HIBAG_Predict_Resp_Prob, object$model,
-                    as.integer(snp), n.samp, vote_method, verbose)
-                names(rv) <- c("H1", "H2", "prob", "postprob")
+                    as.integer(snp), n.samp, vote_method, verbose, pm)
+                names(rv) <- c("H1", "H2", "prob", "matching", "postprob")
             }
 
             res <- hlaAllele(geno.sampid,
@@ -601,6 +617,7 @@ predict.hlaAttrBagClass <- function(object, snp, cl=NULL,
                 H2 = object$hla.allele[rv$H2 + 1L],
                 locus = object$hla.locus, prob = rv$prob,
                 na.rm = FALSE, assembly = assembly)
+            res$value$matching <- rv$matching
             if (!is.null(rv$postprob))
             {
                 res$postprob <- rv$postprob
@@ -616,8 +633,8 @@ predict.hlaAttrBagClass <- function(object, snp, cl=NULL,
             # all probabilites
 
             rv <- .Call(HIBAG_Predict_Resp_Prob, object$model,
-                as.integer(snp), n.samp, vote_method, verbose)
-            names(rv) <- c("H1", "H2", "prob", "postprob")
+                as.integer(snp), n.samp, vote_method, verbose, pm)
+            names(rv) <- c("H1", "H2", "prob", "matching", "postprob")
 
             res <- rv$postprob
             colnames(res) <- geno.sampid
@@ -638,9 +655,9 @@ predict.hlaAttrBagClass <- function(object, snp, cl=NULL,
                 {
                     library(HIBAG)
                     m <- hlaModelFromObj(mobj)
-                    pd <- predict(m, snp[,idx], type=type, vote=vote,
+                    on.exit(hlaClose(m))
+                    pd <- hlaPredict(m, snp[,idx], type=type, vote=vote,
                         verbose=FALSE)
-                    hlaClose(m)
                     pd
                 } else
                     NULL
@@ -676,7 +693,7 @@ predict.hlaAttrBagClass <- function(object, snp, cl=NULL,
     {
         if (NA.cnt > 1L) s <- "s" else s <- ""
         warning(sprintf(
-            "No prediction output%s for %d individual%s ",
+            "No prediction output%s of %d individual%s ",
             s, NA.cnt, s),
             "(possibly due to missing SNPs.)")
     }
@@ -863,6 +880,7 @@ hlaModelToObj <- function(model)
         hla.allele = model$hla.allele, hla.freq = model$hla.freq,
         assembly = model$assembly,
         classifiers = res,
+        matching = model$matching,
         appendix <- model$appendix)
     class(rv) <- "hlaAttrBagObj"
     rv
@@ -907,6 +925,7 @@ hlaCombineModelObj <- function(obj1, obj2)
         hla.freq = (obj1$hla.freq + obj2$hla.freq)*0.5,
         assembly = obj1$assembly,
         classifiers = c(obj1$classifiers, obj2$classifiers),
+        matching = c(obj1$matching, obj2$matching),
         appendix = appendix)
     class(rv) <- "hlaAttrBagObj"
     rv
@@ -965,6 +984,7 @@ hlaModelFromObj <- function(obj)
         hla.freq = obj$hla.freq,
         assembly = as.character(obj$assembly)[1L],
         model = ABmodel,
+        matching = obj$matching,
         appendix = obj$appendix)
     if (is.na(rv$assembly)) rv$assembly <- "unknown"
 
@@ -988,7 +1008,7 @@ summary.hlaAttrBagObj <- function(object, show=TRUE, ...)
         cat("Gene: ", .hla_gene_name_string(obj$hla.locus), "\n", sep="")
         cat("Training dataset:", obj$n.samp, "samples X",
             length(obj$snp.id), "SNPs\n")
-        cat("\t# of HLA alleles: ", length(obj$hla.allele), "\n", sep="")
+        cat("    # of HLA alleles: ", length(obj$hla.allele), "\n", sep="")
     }
 
     # summarize ...
@@ -1019,19 +1039,28 @@ summary.hlaAttrBagObj <- function(object, show=TRUE, ...)
 
     if (show)
     {
-        cat("\t# of individual classifiers: ", length(obj$classifiers),
+        cat("    # of individual classifiers: ", length(obj$classifiers),
             "\n", sep="")
-        cat("\ttotal # of SNPs used: ", length(snpset), "\n", sep="")
-        cat("\taverage # of SNPs in an individual classifier:",
-            sprintf("%0.2f, sd: %0.2f, min: %d, max: %d\n",
-            mean(numsnp), sd(numsnp), min(numsnp), max(numsnp)))
-        cat("\taverage # of haplotypes in an individual classifier:",
-            sprintf("%0.2f, sd: %0.2f, min: %d, max: %d\n",
-            mean(numhaplo), sd(numhaplo), min(numhaplo), max(numhaplo)))
-        cat("\taverage out-of-bag accuracy:",
-            sprintf("%0.2f%%, sd: %0.2f%%, min: %0.2f%%, max: %0.2f%%\n",
+        cat("    total # of SNPs used: ", length(snpset), "\n", sep="")
+        cat("    avg. # of SNPs in an individual classifier:",
+            sprintf("%0.2f\n        (sd: %0.2f, min: %d, max: %d, median: %0.2f)\n",
+            mean(numsnp), sd(numsnp), min(numsnp), max(numsnp),
+            median(numsnp)))
+        cat("    avg. # of haplotypes in an individual classifier:",
+            sprintf("%0.2f\n        (sd: %0.2f, min: %d, max: %d, median: %0.2f)\n",
+            mean(numhaplo), sd(numhaplo), min(numhaplo), max(numhaplo),
+            median(numhaplo)))
+        cat("    avg. out-of-bag accuracy:",
+            sprintf("%0.2f%%\n        (sd: %0.2f%%, min: %0.2f%%, max: %0.2f%%, median: %0.2f%%)\n",
             mean(outofbag.acc), sd(outofbag.acc), min(outofbag.acc),
-            max(outofbag.acc)))
+            max(outofbag.acc), median(outofbag.acc)))
+
+        p <- obj$matching
+        if (!is.null(p))
+        {
+            cat("Matching statistic:\n")
+            print(summary(p))
+        }
 
         if (is.null(obj$assembly))
             cat("Genome assembly: unknown\n")
@@ -1316,8 +1345,8 @@ plot.hlaAttrBagObj <- function(x, xlab=NULL, ylab=NULL,
             assembly <- x$assembly
     }
     info <- hlaLociInfo(assembly)
-    pos.start <- info[x$hla.locus, "start"]/1000
-    pos.end <- info[x$hla.locus, "end"]/1000
+    pos.start <- info[x$hla.locus, "start"] / 1000
+    pos.end <- info[x$hla.locus, "end"] / 1000
 
     # summary of the attribute bagging model
     desp <- summary(x, show=FALSE)
@@ -1371,7 +1400,7 @@ hlaErrMsg <- function()
     if (Version[3L] == 1L)
         s <- "Supported by Streaming SIMD Extensions (SSE2)"
     else if (Version[3L] == 2L)
-        s <- "Supported by Streaming SIMD Extensions (SSE4.2 + hardware POPCNT)"
+        s <- "Supported by Streaming SIMD Extensions (SSE2 + hardware POPCNT)"
     else
         s <- ""
     if ((Version[4L] > 0L) & (s != ""))
