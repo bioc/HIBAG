@@ -8,13 +8,13 @@
 }
 \usage{
 hlaParallelAttrBagging(cl, hla, snp, auto.save="",
-    nclassifier=100, mtry=c("sqrt", "all", "one"), prune=TRUE, rm.na=TRUE,
+    nclassifier=100L, mtry=c("sqrt", "all", "one"), prune=TRUE, na.rm=TRUE,
     stop.cluster=FALSE, verbose=TRUE)
 }
 \arguments{
-    \item{cl}{a cluster object, created by the package \link[parallel]{parallel}
-        or \href{http://CRAN.R-project.org/package=snow}{snow}; if \code{NULL}
-        is given, a uniprocessor implementation will be performed}
+    \item{cl}{if a cluster object, created by the package
+        \link[parallel]{parallel}; if \code{NULL}, serial implementation will
+        be performed; if numeric, specify the number of cores}
     \item{hla}{training HLA types, an object of \code{\link{hlaAlleleClass}}}
     \item{snp}{training SNP genotypes, an object of
         \code{\link{hlaSNPGenoClass}}}
@@ -24,7 +24,7 @@ hlaParallelAttrBagging(cl, hla, snp, auto.save="",
         sampled as candidates for each selection. See details}
     \item{prune}{if TRUE, to perform a parsimonious forward variable selection,
         otherwise, exhaustive forward variable selection. See details}
-    \item{rm.na}{if TRUE, remove the samples with missing HLA types}
+    \item{na.rm}{if TRUE, remove the samples with missing HLA types}
     \item{stop.cluster}{\code{TRUE}: stop cluster nodes after computing}
     \item{verbose}{if TRUE, show information}
 }
@@ -45,13 +45,9 @@ if a new SNP predictor reduces the current out-of-bag accuracy, then it is
 removed from the candidate SNP set for future searching. Parsimonious selection
 helps to improve the computational efficiency by reducing the searching times
 of non-informative SNP markers.
-
-    If \code{auto.save=""}, the function returns a HIBAG model (an object of
-\code{\link{hlaAttrBagClass}}); otherwise, there is no return.
 }
 \value{
-    Return an object of \code{\link{hlaAttrBagClass}} if \code{auto.save}
-is specified.
+    Return an object of \code{\link{hlaAttrBagClass}} if \code{auto.save=""}.
 }
 \references{
     Zheng X, Shen J, Cox C, Wakefield J, Ehm M, Nelson M, Weir BS;
@@ -94,6 +90,15 @@ train.geno <- hlaGenoSubset(HapMap_CEU_Geno,
 test.geno <- hlaGenoSubset(HapMap_CEU_Geno,
     samp.sel=match(hlatab$validation$value$sample.id,
     HapMap_CEU_Geno$sample.id))
+
+
+#############################################################################
+
+set.seed(100)
+
+# train a HIBAG model in parallel with 2 cores
+# please use "nclassifier=100" when you use HIBAG for real data
+model <- hlaParallelAttrBagging(2, hlatab$training, train.geno, nclassifier=4)
 
 
 #############################################################################

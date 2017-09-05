@@ -1,4 +1,4 @@
-CHANGES IN VERSION 1.13.0-1.13.2
+CHANGES IN VERSION 1.13.0-1.13.3
 -------------------------
 
     o modify the kernel to support the GPU extension
@@ -7,6 +7,9 @@ CHANGES IN VERSION 1.13.0-1.13.2
       between training and test datasets
 
     o new function `hlaReportPlot()`
+
+    o the argument 'cl' in `predict.hlaAttrBagClass()`, `hlaPredict()` and
+      `hlaParallelAttrBagging()` allows a numeric value for the number of cores
 
 
 CHANGES IN VERSION 1.12.0

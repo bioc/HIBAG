@@ -183,6 +183,11 @@ model <- hlaModelFromObj(model.obj)
 summary(model)
 ```
 
+```R
+# best-guess genotypes and all posterior probabilities
+pred.guess <- predict(model, yourgeno, type="response+prob", cl=cl)
+```
+
 
 ## Evaluate Overall Accuracy, Sensitivity, Specificity, etc
 
@@ -249,10 +254,11 @@ comp$overall
 
 ### Evaluation in Figures
 
-```{r fig.align="center", fig.height=3, fig.width=5}
+```{r fig.align="center", fig.height=3.3, fig.width=5}
 # violin plot
 hlaReportPlot(pred, model=model, fig="matching")
-hlaReportPlot(pred, hlatab$validation, fig="callrate")
+hlaReportPlot(pred, hlatab$validation, fig="call.rate")
+hlaReportPlot(pred, hlatab$validation, fig="call.threshold")
 ```
 
 ### Report in Text

@@ -46,19 +46,26 @@
 #
 
 hlaAttrBagging <- function(hla, snp, nclassifier=100L,
-    mtry=c("sqrt", "all", "one"), prune=TRUE, rm.na=TRUE,
+    mtry=c("sqrt", "all", "one"), prune=TRUE, na.rm=TRUE,
     verbose=TRUE, verbose.detail=FALSE)
 {
     # check
     stopifnot(inherits(hla, "hlaAlleleClass"))
     stopifnot(inherits(snp, "hlaSNPGenoClass"))
+    stopifnot(is.numeric(nclassifier), length(nclassifier)==1L)
     stopifnot(is.character(mtry) | is.numeric(mtry), length(mtry)>0L)
+    stopifnot(is.logical(prune), length(prune)==1L)
+    stopifnot(is.logical(na.rm), length(na.rm)==1L)
     stopifnot(is.logical(verbose), length(verbose)==1L)
     stopifnot(is.logical(verbose.detail), length(verbose.detail)==1L)
     if (verbose.detail) verbose <- TRUE
 
     with.matching <- (nclassifier > 0L)
-    if (!with.matching) nclassifier <- 1L
+    if (!with.matching)
+    {
+        nclassifier <- -nclassifier
+        if (nclassifier == 0L) nclassifier <- 1L
+    }
 
     # get the common samples
     samp.id <- intersect(hla$value$sample.id, snp$sample.id)
@@ -67,7 +74,7 @@ hlaAttrBagging <- function(hla, snp, nclassifier=100L,
     samp.flag <- match(samp.id, hla$value$sample.id)
     hla.allele1 <- hla$value$allele1[samp.flag]
     hla.allele2 <- hla$value$allele2[samp.flag]
-    if (rm.na)
+    if (na.rm)
     {
         if (any(is.na(c(hla.allele1, hla.allele2))))
         {
@@ -204,9 +211,21 @@ hlaAttrBagging <- function(hla, snp, nclassifier=100L,
     {
         if (verbose)
             cat("Calculating matching proportion:\n")
-        pd <- hlaPredict(mod, snp.geno, verbose=FALSE)
+        pd <- hlaPredict(mod, snp, verbose=FALSE)
         mod$matching <- pd$value$matching
-        if (verbose) .printMatching(mod$matching)
+        if (verbose)
+        {
+            .printMatching(mod$matching)
+            acc <- hlaCompareAllele(hla, pd, verbose=FALSE)$overall$acc.haplo
+            cat(sprintf("Accuracy with training data: %.1f%%\n", acc*100))
+        }
+    }
+    # out-of-bag accuracy
+    if (verbose)
+    {
+        mobj <- hlaModelToObj(mod)
+        acc <- sapply(mobj$classifiers, function(x) x$outofbag.acc)
+        cat(sprintf("Out-of-bag accuracy: %.1f%%\n", mean(acc)*100))
     }
 
     mod
@@ -218,26 +237,37 @@ hlaAttrBagging <- function(hla, snp, nclassifier=100L,
 #
 
 hlaParallelAttrBagging <- function(cl, hla, snp, auto.save="",
-    nclassifier=100, mtry=c("sqrt", "all", "one"), prune=TRUE, rm.na=TRUE,
+    nclassifier=100L, mtry=c("sqrt", "all", "one"), prune=TRUE, na.rm=TRUE,
     stop.cluster=FALSE, verbose=TRUE)
 {
     # check
-    stopifnot(is.null(cl) | inherits(cl, "cluster"))
+    stopifnot(is.null(cl) | is.numeric(cl) | inherits(cl, "cluster"))
     stopifnot(inherits(hla, "hlaAlleleClass"))
     stopifnot(inherits(snp, "hlaSNPGenoClass"))
-
     stopifnot(is.character(auto.save), length(auto.save)==1L)
-    stopifnot(is.numeric(nclassifier))
-    stopifnot(is.character(mtry) | is.numeric(mtry))
-    stopifnot(is.logical(prune))
-    stopifnot(is.logical(rm.na))
+    stopifnot(is.numeric(nclassifier), length(nclassifier)==1L)
+    stopifnot(is.character(mtry) | is.numeric(mtry), length(mtry)>0L)
+    stopifnot(is.logical(prune), length(prune)==1L)
+    stopifnot(is.logical(na.rm), length(na.rm)==1L)
     stopifnot(is.logical(stop.cluster))
     stopifnot(is.logical(verbose))
 
-    if (!is.null(cl))
+    if (inherits(cl, "cluster"))
     {
         if (!requireNamespace("parallel", quietly=TRUE))
             stop("The `parallel' package should be installed.")
+    } else if (is.numeric(cl))
+    {
+        if (cl > 1L)
+        {
+            if (!requireNamespace("parallel", quietly=TRUE))
+                stop("The `parallel' package should be installed.")
+            cl <- parallel::makeCluster(cl)
+            on.exit(parallel::stopCluster(cl))
+            stop.cluster <- FALSE
+        } else {
+            cl <- NULL
+        }
     }
 
     if (verbose)
@@ -245,7 +275,7 @@ hlaParallelAttrBagging <- function(cl, hla, snp, auto.save="",
         if (!is.null(cl))
         {
             cat("Build a HIBAG model of", sprintf(
-                "%d individual classifier%s in parallel with %d node%s:\n",
+                "%d individual classifier%s in parallel with %d compute node%s:\n",
                 nclassifier, if (nclassifier>1L) "s" else "",
                 length(cl), if (length(cl)>1L) "s" else ""
             ))
@@ -271,11 +301,11 @@ hlaParallelAttrBagging <- function(cl, hla, snp, auto.save="",
         total <- 0L
 
         .DynamicClusterCall(cl,
-            fun = function(job, hla, snp, mtry, prune, rm.na)
+            fun = function(job, hla, snp, mtry, prune, na.rm)
             {
                 eval(parse(text="library(HIBAG)"))
                 model <- hlaAttrBagging(hla=hla, snp=snp, nclassifier=0L,
-                    mtry=mtry, prune=prune, rm.na=rm.na,
+                    mtry=mtry, prune=prune, na.rm=na.rm,
                     verbose=FALSE, verbose.detail=FALSE)
                 mobj <- hlaModelToObj(model)
                 hlaClose(model)
@@ -294,7 +324,7 @@ hlaParallelAttrBagging <- function(cl, hla, snp, auto.save="",
                 if (verbose & !is.null(mobj))
                 {
                     z <- summary(mobj, show=FALSE)
-                    cat("  --  average out-of-bag accuracy:", sprintf(
+                    cat("  --  avg out-of-bag acc:", sprintf(
                         "%0.2f%%, sd: %0.2f%%, min: %0.2f%%, max: %0.2f%%\n",
                         z$info["accuracy", "Mean"], z$info["accuracy", "SD"],
                         z$info["accuracy", "Min"], z$info["accuracy", "Max"]))
@@ -307,15 +337,16 @@ hlaParallelAttrBagging <- function(cl, hla, snp, auto.save="",
                 {
                     z <- summary(obj, show=FALSE)
                     eval(parse(text="total <<- total + 1L"))
-                    cat(date(), sprintf(
-        ", %4d, job %3d, # of SNPs: %g, # of haplo: %g, accuracy: %0.1f%%\n",
+                    cat(sprintf(
+                        "%s,%4d, job%3d, # of SNPs: %g, # of haplo: %g, acc: %0.1f%%\n",
+                        format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
                         total, as.integer(job), z$info["num.snp", "Mean"],
                         z$info["num.haplo", "Mean"],
-                        z$info["accuracy", "Mean"]), sep="")
+                        z$info["accuracy", "Mean"]))
                 }
             },
             n = nclassifier, stop.cluster = stop.cluster,
-            hla=hla, snp=snp, mtry=mtry, prune=prune, rm.na=rm.na
+            hla=hla, snp=snp, mtry=mtry, prune=prune, na.rm=na.rm
         )
     })
 
@@ -324,15 +355,26 @@ hlaParallelAttrBagging <- function(cl, hla, snp, auto.save="",
         parallel::nextRNGStream(rand)
         parallel::nextRNGSubStream(rand)
     }
+    if (stop.cluster) cl <- NULL
 
     if (auto.save != "")
         ans <- get(load(auto.save))
     mod <- hlaModelFromObj(ans)
     if (verbose)
         cat("Calculating matching proportion:\n")
-    pd <- hlaPredict(mod, snp, verbose=FALSE)
+    pd <- hlaPredict(mod, snp, cl=cl, verbose=FALSE)
     mod$matching <- pd$value$matching
-    if (verbose) .printMatching(mod$matching)
+
+    if (verbose)
+    {
+        .printMatching(mod$matching)
+        acc <- hlaCompareAllele(hla, pd, verbose=FALSE)$overall$acc.haplo
+        cat(sprintf("Accuracy with training data: %.1f%%\n", acc*100))
+        # out-of-bag accuracy
+        mobj <- hlaModelToObj(mod)
+        acc <- sapply(mobj$classifiers, function(x) x$outofbag.acc)
+        cat(sprintf("Out-of-bag accuracy: %.1f%%\n", mean(acc)*100))
+    }
 
     # output
     if (auto.save != "")
@@ -379,7 +421,7 @@ predict.hlaAttrBagClass <- function(object, snp, cl=NULL,
 {
     # check
     stopifnot(inherits(object, "hlaAttrBagClass"))
-    stopifnot(is.null(cl) | inherits(cl, "cluster"))
+    stopifnot(is.null(cl) | is.numeric(cl) | inherits(cl, "cluster"))
     stopifnot(is.logical(allele.check), length(allele.check)==1L)
     stopifnot(is.logical(same.strand), length(same.strand)==1L)
     stopifnot(is.logical(verbose), length(verbose)==1L)
@@ -388,11 +430,23 @@ predict.hlaAttrBagClass <- function(object, snp, cl=NULL,
     vote <- match.arg(vote)
     match.type <- match.arg(match.type)
     vote_method <- match(vote, c("prob", "majority"))
-    if (!is.null(cl))
+
+    if (inherits(cl, "cluster"))
     {
         if (!requireNamespace("parallel", quietly=TRUE))
             stop("The `parallel' package should be installed.")
         if (length(cl) <= 1L) cl <- NULL
+    } else if (is.numeric(cl))
+    {
+        if (cl > 1L)
+        {
+            if (!requireNamespace("parallel", quietly=TRUE))
+                stop("The `parallel' package should be installed.")
+            cl <- parallel::makeCluster(cl)
+            on.exit(parallel::stopCluster(cl))
+        } else {
+            cl <- NULL
+        }
     }
 
     # if warning
@@ -408,7 +462,7 @@ predict.hlaAttrBagClass <- function(object, snp, cl=NULL,
         CNum <- .Call(HIBAG_GetNumClassifiers, object$model)
 
         cat(sprintf(
-"HIBAG model: %d individual classifier%s, %d SNPs, %d unique HLA alleles.\n",
+            "HIBAG model: %d individual classifier%s, %d SNPs, %d unique HLA alleles.\n",
             CNum, .plural(CNum), length(object$snp.id),
             length(object$hla.allele)))
 
@@ -422,7 +476,7 @@ predict.hlaAttrBagClass <- function(object, snp, cl=NULL,
         if (!is.null(cl))
         {
             cat(sprintf(
-                "Run in parallel with %d computing node%s.\n",
+                "Run in parallel with %d compute node%s.\n",
                 length(cl), if (length(cl)>1) "s" else ""
             ))
         }
@@ -912,7 +966,7 @@ hlaModelToObj <- function(model)
         assembly = model$assembly,
         classifiers = res,
         matching = model$matching,
-        appendix <- model$appendix)
+        appendix = model$appendix)
     class(rv) <- "hlaAttrBagObj"
     rv
 }
@@ -1362,8 +1416,9 @@ print.hlaAttrBagClass <- function(x, ...)
 # To visualize an attribute bagging model
 #
 
-plot.hlaAttrBagObj <- function(x, xlab=NULL, ylab=NULL,
-    locus.color="red", locus.lty=2, locus.cex=1.25, assembly="auto", ...)
+plot.hlaAttrBagObj <- function(x, snp.col="gray33", snp.pch=1, snp.sz=1,
+    locus.col="blue", locus.lty=2, addplot=NULL,
+    assembly="auto", ...)
 {
     # check
     stopifnot(inherits(x, "hlaAttrBagObj"))
@@ -1376,23 +1431,40 @@ plot.hlaAttrBagObj <- function(x, xlab=NULL, ylab=NULL,
             assembly <- x$assembly
     }
     info <- hlaLociInfo(assembly)
-    pos.start <- info[x$hla.locus, "start"] / 1000
-    pos.end <- info[x$hla.locus, "end"] / 1000
+    pos.start <- info[x$hla.locus, "start"] / 1000L
+    pos.end <- info[x$hla.locus, "end"] / 1000L
 
     # summary of the attribute bagging model
     desp <- summary(x, show=FALSE)
 
-    # x - label, y - label
-    if (is.null(xlab)) xlab <- "SNP Position (KB)"
-    if (is.null(ylab)) ylab <- "Frequency of Use"
-
     # draw
-    plot(x$snp.position/1000, desp$snp.hist, xlab=xlab, ylab=ylab, ...)
-    abline(v=pos.start, col=locus.color, lty=locus.lty)
-    abline(v=pos.end, col=locus.color, lty=locus.lty)
-    text((pos.start + pos.end)/2, max(desp$snp.hist),
-        paste("HLA", x$hla.locus, sep="-"),
-        col=locus.color, cex=locus.cex)
+    dat <- data.frame(pos=x$snp.position/1000L, ht=desp$snp.hist)
+    pos <- ht <- NULL
+
+    if (is.null(addplot))
+    {
+        p <- ggplot2::ggplot(dat, ggplot2::aes(x=pos, y=ht)) +
+            ggplot2::xlab("SNP Position (KB)") +
+            ggplot2::ylab("Frequency of Use")
+    } else {
+        p <- addplot
+    }
+    p <- p +
+        ggplot2::geom_vline(xintercept=pos.start, color=locus.col,
+            linetype=locus.lty) +
+        ggplot2::geom_vline(xintercept=pos.end, color=locus.col,
+            linetype=locus.lty) +
+        ggplot2::annotate("label", x=(pos.start + pos.end)/2,
+            y=max(dat$ht), colour=locus.col, vjust="inward",
+            label=paste("HLA", x$hla.locus, sep="-"))
+    if (is.null(addplot))
+    {
+        p <- p + ggplot2::geom_point(color=snp.col, shape=snp.pch, size=snp.sz)
+    } else {
+        p <- p + ggplot2::geom_point(ggplot2::aes(x=pos, y=ht), dat,
+            color=snp.col, shape=snp.pch, size=snp.sz)
+    }
+    p
 }
 
 print.hlaAttrBagObj <- function(x, ...)
@@ -1431,7 +1503,7 @@ hlaErrMsg <- function()
     if (Version[3L] == 1L)
         s <- "Supported by Streaming SIMD Extensions (SSE2)"
     else if (Version[3L] == 2L)
-        s <- "Supported by Streaming SIMD Extensions (SSE2 + hardware POPCNT)"
+        s <- "Supported by Streaming SIMD Extensions (SSE2 + POPCNT)"
     else
         s <- ""
     if ((Version[4L] > 0L) & (s != ""))
