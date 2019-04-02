@@ -20,7 +20,7 @@ HIBAG is a state of the art software package for imputing HLA types using SNP da
 
 ## Bioconductor Package
 
-Release Version: 1.18.0
+Release Version: 1.16.0
 
 [http://www.bioconductor.org/packages/release/bioc/html/HIBAG.html](http://www.bioconductor.org/packages/release/bioc/html/HIBAG.html)
 
@@ -62,14 +62,15 @@ or [http://www.biostat.washington.edu/~bsweir/HIBAG/](http://www.biostat.washing
 Zheng, X. *et al*. HIBAG-HLA genotype imputation with attribute bagging. *Pharmacogenomics Journal* 14, 192-200 (2014).
 [http://dx.doi.org/10.1038/tpj.2013.18](http://dx.doi.org/10.1038/tpj.2013.18)
 
+Zheng, X. (2018) Imputation-Based HLA Typing with SNPs in GWAS Studies. In: Boegel S. (eds) HLA Typing. Methods in Molecular Biology, Vol 1802. Humana Press, New York, NY. [https://doi.org/10.1007/978-1-4939-8546-3_11](https://doi.org/10.1007/978-1-4939-8546-3_11)
+
 
 ## Installation
 
 * Bioconductor repository:
 ```R
-if (!requireNamespace("BiocManager", quietly=TRUE))
-    install.packages("BiocManager")
-BiocManager::install("HIBAG")
+source("http://bioconductor.org/biocLite.R")
+biocLite("HIBAG")
 ```
 
 * Development version from Github:

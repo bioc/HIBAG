@@ -3,6 +3,8 @@ CHANGES IN VERSION 1.18.0
 
     o new function `hlaDistance()`
 
+    o `match.type="Position"` is the default option in `hlaPredict()`
+
 
 CHANGES IN VERSION 1.16.0
 -------------------------
