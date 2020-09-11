@@ -8,7 +8,8 @@
 }
 \usage{
 hlaAttrBagging(hla, snp, nclassifier=100L, mtry=c("sqrt", "all", "one"),
-    prune=TRUE, na.rm=TRUE, mono.rm=TRUE, verbose=TRUE, verbose.detail=FALSE)
+    prune=TRUE, na.rm=TRUE, mono.rm=TRUE, nthread=1L, verbose=TRUE,
+    verbose.detail=FALSE)
 }
 \arguments{
     \item{hla}{the training HLA types, an object of
@@ -20,8 +21,11 @@ hlaAttrBagging(hla, snp, nclassifier=100L, mtry=c("sqrt", "all", "one"),
         randomly sampled as candidates for each selection. See details}
     \item{prune}{if TRUE, to perform a parsimonious forward variable selection,
         otherwise, exhaustive forward variable selection. See details}
-    \item{na.rm}{if TRUE, remove the samples with missing HLA types}
+    \item{na.rm}{if TRUE, remove the samples with missing HLA alleles}
     \item{mono.rm}{if TRUE, remove monomorphic SNPs}
+    \item{nthread}{specify the number of threads used in the model building;
+        if \code{TRUE}, use the number of threads returned from
+        \code{RcppParallel::defaultNumThreads()} (by default using all threads)}
     \item{verbose}{if TRUE, show information}
     \item{verbose.detail}{if TRUE, show more information}
 }
@@ -67,7 +71,7 @@ on non-informative SNP markers.
     Zheng X, Shen J, Cox C, Wakefield J, Ehm M, Nelson M, Weir BS;
     HIBAG -- HLA Genotype Imputation with Attribute Bagging.
     Pharmacogenomics Journal. doi: 10.1038/tpj.2013.18.
-    \url{http://www.nature.com/tpj/journal/v14/n2/full/tpj201318a.html}
+    \url{https://www.nature.com/articles/tpj201318}
 }
 \author{Xiuwen Zheng}
 \seealso{

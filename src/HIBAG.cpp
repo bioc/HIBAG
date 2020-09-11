@@ -1,7 +1,7 @@
 // ===============================================================
 //
 // HIBAG R package (HLA Genotype Imputation with Attribute Bagging)
-// Copyright (C) 2011-2018   Xiuwen Zheng (zhengx@u.washington.edu)
+// Copyright (C) 2011-2020   Xiuwen Zheng (zhengx@u.washington.edu)
 // All rights reserved.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -29,6 +29,8 @@
 #include <R.h>
 #include <Rdefines.h>
 #include <R_ext/Rdynload.h>
+#include <RcppParallel.h>
+#include <tbb/parallel_for.h>
 
 
 using namespace std;
@@ -60,7 +62,7 @@ extern "C"
 
 
 /// the last error information
-std::string _LastError;
+static std::string _LastError;
 
 
 // ===========================================================
@@ -502,21 +504,39 @@ SEXP HIBAG_Close(SEXP model)
  *  \param verbose_detail  show more information if TRUE
  *  \param proc_ptr        pointer to functions for an extensible component
 **/
-SEXP HIBAG_NewClassifiers(SEXP model, SEXP nclassifier, SEXP mtry,
-	SEXP prune, SEXP verbose, SEXP verbose_detail, SEXP proc_ptr)
+SEXP HIBAG_NewClassifiers(SEXP model, SEXP NClassifier, SEXP MTry,
+	SEXP Prune, SEXP NThread, SEXP Verbose, SEXP VerboseDetail, SEXP proc_ptr)
 {
+	const int midx = Rf_asInteger(model);
+	const int nclassifier = Rf_asInteger(NClassifier);
+	const int mtry = Rf_asInteger(MTry);
+	const int nthread = Rf_asInteger(NThread);
+	const bool prune = Rf_asLogical(Prune) == TRUE;
+	const bool verbose = Rf_asLogical(Verbose) == TRUE;
+	const bool verbose_detail = Rf_asLogical(VerboseDetail) == TRUE;
+
 	CORE_TRY
-		int midx = Rf_asInteger(model);
 		_Check_HIBAG_Model(midx);
 		GetRNGstate();
+
+	#if RCPP_PARALLEL_USE_TBB
+		tbb::task_scheduler_init init(nthread);
+	#endif
+		if (verbose)
+		{
+		#if RCPP_PARALLEL_USE_TBB
+			int n = tbb::this_task_arena::max_concurrency();
+		#else
+			int n = 1;
+		#endif
+			Rprintf("# of threads: %d\n", n);
+		}
 
 		if (!Rf_isNull(proc_ptr))
 			GPUExtProcPtr = (TypeGPUExtProc *)R_ExternalPtrAddr(proc_ptr);
 		try {
-			_HIBAG_MODELS_[midx]->BuildClassifiers(
-				Rf_asInteger(nclassifier), Rf_asInteger(mtry),
-				Rf_asLogical(prune) == TRUE, Rf_asLogical(verbose) == TRUE,
-				Rf_asLogical(verbose_detail) == TRUE);
+			_HIBAG_MODELS_[midx]->BuildClassifiers(nclassifier, mtry,
+				prune, verbose, verbose_detail);
 			GPUExtProcPtr = NULL;
 		}
 		catch(...) {
@@ -532,40 +552,57 @@ SEXP HIBAG_NewClassifiers(SEXP model, SEXP nclassifier, SEXP mtry,
 /**
  *  Predict HLA types, output the best-guess and their prob.
  *
- *  \param model        the model index
+ *  \param Model        the model index
  *  \param GenoMat      the pointer to the SNP genotypes
- *  \param nSamp        the number of samples in GenoMat
- *  \param vote_method  the voting method
- *  \param ShowInfo     whether showing information
+ *  \param NumSamp      the number of samples in GenoMat
+ *  \param VoteMethod   the voting method
+ *  \param NThread      the number of threads
+ *  \param Verbose      whether showing information
  *  \param proc_ptr     pointer to functions for an extensible component
  *  \return H1, H2 and posterior prob.
 **/
-SEXP HIBAG_Predict_Resp(SEXP model, SEXP GenoMat, SEXP nSamp,
-	SEXP vote_method, SEXP ShowInfo, SEXP proc_ptr)
+SEXP HIBAG_Predict_Resp(SEXP Model, SEXP GenoMat, SEXP NumSamp,
+	SEXP VoteMethod, SEXP NThread, SEXP Verbose, SEXP proc_ptr)
 {
-	int midx = Rf_asInteger(model);
-	int NumSamp = Rf_asInteger(nSamp);
+	const int midx = Rf_asInteger(Model);
+	const int nSamp = Rf_asInteger(NumSamp);
+	const int vote_method = Rf_asInteger(VoteMethod);
+	const int nthread = Rf_asInteger(NThread);
+	const bool verbose = Rf_asLogical(Verbose)==TRUE;
 
 	CORE_TRY
 		_Check_HIBAG_Model(midx);
 		CAttrBag_Model &M = *_HIBAG_MODELS_[midx];
 
+	#if RCPP_PARALLEL_USE_TBB
+		tbb::task_scheduler_init init(nthread);
+	#endif
+		if (verbose)
+		{
+		#if RCPP_PARALLEL_USE_TBB
+			int n = tbb::this_task_arena::max_concurrency();
+		#else
+			int n = 1;
+		#endif
+			Rprintf("# of threads: %d\n", n);
+		}
+
 		rv_ans = PROTECT(NEW_LIST(4));
-		SEXP out_H1 = PROTECT(NEW_INTEGER(NumSamp));
+		SEXP out_H1 = NEW_INTEGER(nSamp);
 		SET_ELEMENT(rv_ans, 0, out_H1);
-		SEXP out_H2 = PROTECT(NEW_INTEGER(NumSamp));
+		SEXP out_H2 = NEW_INTEGER(nSamp);
 		SET_ELEMENT(rv_ans, 1, out_H2);
-		SEXP out_Prob = PROTECT(NEW_NUMERIC(NumSamp));
+		SEXP out_Prob = NEW_NUMERIC(nSamp);
 		SET_ELEMENT(rv_ans, 2, out_Prob);
-		SEXP out_PriorProb = PROTECT(NEW_NUMERIC(NumSamp));
-		SET_ELEMENT(rv_ans, 3, out_PriorProb);
+		SEXP out_Matching = NEW_NUMERIC(nSamp);
+		SET_ELEMENT(rv_ans, 3, out_Matching);
 
 		if (!Rf_isNull(proc_ptr))
 			GPUExtProcPtr = (TypeGPUExtProc *)R_ExternalPtrAddr(proc_ptr);
 		try {
-			M.PredictHLA(INTEGER(GenoMat), NumSamp, Rf_asInteger(vote_method),
+			M.PredictHLA(INTEGER(GenoMat), nSamp, vote_method,
 				INTEGER(out_H1), INTEGER(out_H2), REAL(out_Prob),
-				REAL(out_PriorProb), NULL, Rf_asLogical(ShowInfo)==TRUE);
+				REAL(out_Matching), NULL, verbose);
 			GPUExtProcPtr = NULL;
 		}
 		catch(...) {
@@ -573,7 +610,7 @@ SEXP HIBAG_Predict_Resp(SEXP model, SEXP GenoMat, SEXP nSamp,
 			throw;
 		}
 
-		UNPROTECT(5);
+		UNPROTECT(1);
 	CORE_CATCH
 }
 
@@ -590,37 +627,50 @@ SEXP HIBAG_Predict_Resp(SEXP model, SEXP GenoMat, SEXP nSamp,
  *  \param proc_ptr     pointer to functions for an extensible component
  *  \return H1, H2, prob. and a matrix of all probabilities
 **/
-SEXP HIBAG_Predict_Resp_Prob(SEXP model, SEXP GenoMat, SEXP nSamp,
-	SEXP vote_method, SEXP ShowInfo, SEXP proc_ptr)
+SEXP HIBAG_Predict_Resp_Prob(SEXP Model, SEXP GenoMat, SEXP NumSamp,
+	SEXP VoteMethod, SEXP NThread, SEXP Verbose, SEXP proc_ptr)
 {
-	int midx = Rf_asInteger(model);
-	int NumSamp = Rf_asInteger(nSamp);
+	const int midx = Rf_asInteger(Model);
+	const int nSamp = Rf_asInteger(NumSamp);
+	const int vote_method = Rf_asInteger(VoteMethod);
+	const int nthread = Rf_asInteger(NThread);
+	const bool verbose = Rf_asLogical(Verbose)==TRUE;
 
 	CORE_TRY
 		_Check_HIBAG_Model(midx);
 		CAttrBag_Model &M = *_HIBAG_MODELS_[midx];
 
-		rv_ans = PROTECT(NEW_LIST(5));
+	#if RCPP_PARALLEL_USE_TBB
+		tbb::task_scheduler_init init(nthread);
+	#endif
+		if (verbose)
+		{
+		#if RCPP_PARALLEL_USE_TBB
+			int n = tbb::this_task_arena::max_concurrency();
+		#else
+			int n = 1;
+		#endif
+			Rprintf("# of threads: %d\n", n);
+		}
 
-		SEXP out_H1 = PROTECT(NEW_INTEGER(NumSamp));
+		rv_ans = PROTECT(NEW_LIST(5));
+		SEXP out_H1 = NEW_INTEGER(nSamp);
 		SET_ELEMENT(rv_ans, 0, out_H1);
-		SEXP out_H2 = PROTECT(NEW_INTEGER(NumSamp));
+		SEXP out_H2 = NEW_INTEGER(nSamp);
 		SET_ELEMENT(rv_ans, 1, out_H2);
-		SEXP out_Prob = PROTECT(NEW_NUMERIC(NumSamp));
+		SEXP out_Prob = NEW_NUMERIC(nSamp);
 		SET_ELEMENT(rv_ans, 2, out_Prob);
-		SEXP out_PriorProb = PROTECT(NEW_NUMERIC(NumSamp));
-		SET_ELEMENT(rv_ans, 3, out_PriorProb);
-		SEXP out_MatProb = PROTECT(
-			allocMatrix(REALSXP, M.nHLA()*(M.nHLA()+1)/2, NumSamp));
+		SEXP out_Matching = NEW_NUMERIC(nSamp);
+		SET_ELEMENT(rv_ans, 3, out_Matching);
+		SEXP out_MatProb = allocMatrix(REALSXP, M.nHLA()*(M.nHLA()+1)/2, nSamp);
 		SET_ELEMENT(rv_ans, 4, out_MatProb);
 
 		if (!Rf_isNull(proc_ptr))
 			GPUExtProcPtr = (TypeGPUExtProc *)R_ExternalPtrAddr(proc_ptr);
 		try {
-			M.PredictHLA(INTEGER(GenoMat), NumSamp, Rf_asInteger(vote_method),
+			M.PredictHLA(INTEGER(GenoMat), nSamp, vote_method,
 				INTEGER(out_H1), INTEGER(out_H2), REAL(out_Prob),
-				REAL(out_PriorProb), REAL(out_MatProb),
-				Rf_asLogical(ShowInfo)==TRUE);
+				REAL(out_Matching), REAL(out_MatProb), verbose);
 			GPUExtProcPtr = NULL;
 		}
 		catch(...) {
@@ -628,7 +678,7 @@ SEXP HIBAG_Predict_Resp_Prob(SEXP model, SEXP GenoMat, SEXP nSamp,
 			throw;
 		}
 
-		UNPROTECT(6);
+		UNPROTECT(1);
 	CORE_CATCH
 }
 
@@ -829,7 +879,6 @@ SEXP HIBAG_Confusion(SEXP n_hla, SEXP init_mat, SEXP n_DConfusion,
 SEXP HIBAG_BEDFlag(SEXP bedfn)
 {
 	const char *fn = CHAR(STRING_ELT(bedfn, 0));
-
 	CORE_TRY
 		ifstream file(fn, ios::binary);
 		if (!file.good())
@@ -1095,41 +1144,39 @@ SEXP HIBAG_Distance(SEXP NumHLA, SEXP Idx, SEXP Freq, SEXP HaploStr)
 
 
 /**
- *  Get an error message
+ *  Get the version and SSE information
 **/
-SEXP HIBAG_ErrMsg()
+SEXP HIBAG_Kernel_Version()
 {
-	return mkString(_LastError.c_str());
+	SEXP ans = PROTECT(NEW_LIST(3));
+	// version
+	SEXP I = NEW_INTEGER(2);
+	SET_ELEMENT(ans, 0, I);
+	INTEGER(I)[0] = HIBAG_KERNEL_VERSION >> 8;
+	INTEGER(I)[1] = HIBAG_KERNEL_VERSION & 0xFF;
+	// CPU information
+	SET_ELEMENT(ans, 1, mkString(CPU_Info()));
+	// using Intel TBB or not
+#if RCPP_PARALLEL_USE_TBB
+	int ntot = tbb::this_task_arena::max_concurrency();
+	SET_ELEMENT(ans, 2, ScalarInteger(ntot));
+#else
+	SET_ELEMENT(ans, 2, ScalarInteger(NA_INTEGER));
+#endif
+	// output
+	UNPROTECT(1);
+	return ans;
 }
 
 
 /**
  *  Get the version and SSE information
 **/
-SEXP HIBAG_Kernel_Version()
+SEXP HIBAG_Kernel_SetTarget(SEXP CPU)
 {
-	SEXP ans = NEW_INTEGER(4);
-
-	INTEGER(ans)[0] = HIBAG_KERNEL_VERSION >> 8;
-	INTEGER(ans)[1] = HIBAG_KERNEL_VERSION & 0xFF;
-
-	#ifdef HIBAG_SIMD_OPTIMIZE_HAMMING_DISTANCE
-	#   ifdef HIBAG_HARDWARE_POPCNT
-		INTEGER(ans)[2] = 2;
-	#   else
-		INTEGER(ans)[2] = 1;
-	#   endif
-	#else
-		INTEGER(ans)[2] = 0;
-	#endif
-
-	#ifdef HIBAG_REG_BIT64
-		INTEGER(ans)[3] = 64;
-	#else
-		INTEGER(ans)[3] = 0;
-	#endif
-
-	return ans;
+	const char *cpu = CHAR(STRING_ELT(CPU, 0));
+	CAlg_Prediction::Init_Target_IFunc(cpu);
+	return R_NilValue;
 }
 
 
@@ -1162,13 +1209,12 @@ void R_init_HIBAG(DllInfo *info)
 		CALL(HIBAG_Confusion, 4),
 		CALL(HIBAG_ConvBED, 5),
 		CALL(HIBAG_Distance, 4),
-		CALL(HIBAG_ErrMsg, 0),
 		CALL(HIBAG_Kernel_Version, 0),
 		CALL(HIBAG_New, 3),
 		CALL(HIBAG_NewClassifierHaplo, 7),
-		CALL(HIBAG_NewClassifiers, 7),
-		CALL(HIBAG_Predict_Resp, 6),
-		CALL(HIBAG_Predict_Resp_Prob, 6),
+		CALL(HIBAG_NewClassifiers, 8),
+		CALL(HIBAG_Predict_Resp, 7),
+		CALL(HIBAG_Predict_Resp_Prob, 7),
 		CALL(HIBAG_Training, 6),
 		CALL(HIBAG_SortAlleleStr, 1),
 		CALL(HIBAG_SeqMerge, 1),
@@ -1178,7 +1224,6 @@ void R_init_HIBAG(DllInfo *info)
 	};
 
 	R_registerRoutines(info, NULL, callMethods, NULL, NULL);
-
 	memset((void*)_HIBAG_MODELS_, 0, sizeof(_HIBAG_MODELS_));
 }
 
