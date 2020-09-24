@@ -520,9 +520,9 @@ SEXP HIBAG_NewClassifiers(SEXP model, SEXP NClassifier, SEXP MTry,
 		GetRNGstate();
 
 	#if RCPP_PARALLEL_USE_TBB
-		tbb::task_scheduler_init init(nthread);
+		tbb::task_scheduler_init init(abs(nthread));
 	#endif
-		if (verbose)
+		if (verbose && nthread>0)
 		{
 		#if RCPP_PARALLEL_USE_TBB
 			int n = tbb::this_task_arena::max_concurrency();
@@ -530,6 +530,7 @@ SEXP HIBAG_NewClassifiers(SEXP model, SEXP NClassifier, SEXP MTry,
 			int n = 1;
 		#endif
 			Rprintf("# of threads: %d\n", n);
+			Rprintf("[-] %s\n", date_text());
 		}
 
 		if (!Rf_isNull(proc_ptr))
@@ -1155,7 +1156,39 @@ SEXP HIBAG_Kernel_Version()
 	INTEGER(I)[0] = HIBAG_KERNEL_VERSION >> 8;
 	INTEGER(I)[1] = HIBAG_KERNEL_VERSION & 0xFF;
 	// CPU information
-	SET_ELEMENT(ans, 1, mkString(CPU_Info()));
+	SEXP info = NEW_CHARACTER(2);
+	SET_ELEMENT(ans, 1, info);
+	SET_STRING_ELT(info, 0, mkChar(CPU_Info()));
+	// compiler
+#ifdef __VERSION__
+	string version = __VERSION__;
+#else
+	string version;
+#endif
+#ifdef __GNUC__
+	char buf_compiler[128] = { 0 };
+	#ifndef __GNUC_PATCHLEVEL__
+	#   define __GNUC_PATCHLEVEL__    0
+	#endif
+	sprintf(buf_compiler, "GNUG_v%d.%d.%d", __GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__);
+	string gnug = buf_compiler;
+#else
+	string gnug;
+#endif
+	string s;
+	if (!version.empty())
+	{
+		if (!gnug.empty())
+			s = version + ", " + gnug;
+		else
+			s = version;
+	} else {
+		if (!gnug.empty())
+			s = gnug;
+		else
+			s = "Unknown compiler";
+	}
+	SET_STRING_ELT(info, 1, mkChar(s.c_str()));
 	// using Intel TBB or not
 #if RCPP_PARALLEL_USE_TBB
 	int ntot = tbb::this_task_arena::max_concurrency();

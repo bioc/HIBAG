@@ -20,8 +20,8 @@ hlaPredict(object, snp, cl=FALSE,
 \arguments{
     \item{object}{a model of \code{\link{hlaAttrBagClass}}}
     \item{snp}{a genotypic object of \code{\link{hlaSNPGenoClass}}}
-    \item{cl}{\code{FALSE}, \code{TRUE}, integer, or a cluster object created
-        by the \link{parallel-package}; if \code{FALSE}, use the serial
+    \item{cl}{\code{FALSE}, \code{TRUE}, an integer, or a cluster object
+        created by the \link{parallel-package}; if \code{FALSE}, use the serial
         implementation; if \code{TRUE}, use the number of threads returned from
         \code{RcppParallel::defaultNumThreads()} (by default using all threads);
         if an integer, specify the number of threads}
@@ -58,8 +58,8 @@ and \code{rownames} is an unordered pair of HLA alleles.
     When \code{match.type="RefSNP+Position"}, the matching of SNPs requires
 both SNP IDs and positions. A lower missing fraction maybe gained by
 matching SNP IDs or positions only. Call
-    \code{predict(..., match.type="RefSNP")} or
-    \code{predict(..., match.type="Position")} for this purpose.
+    \code{hlaPredict(..., match.type="RefSNP")} or
+    \code{hlaPredict(..., match.type="Position")} for this purpose.
 It could be safe to assume that the SNPs with the same positions on the same
 genome reference (e.g., hg19) are the same variant albeit the different SNP
 IDs. Any concern about SNP mismatching should be emailed to the genotyping
@@ -68,7 +68,8 @@ platform provider.
 \author{Xiuwen Zheng}
 \seealso{
     \code{\link{hlaAttrBagging}}, \code{\link{hlaAllele}},
-    \code{\link{hlaCompareAllele}}, \code{\link{hlaParallelAttrBagging}}
+    \code{\link{hlaCompareAllele}}, \code{\link{hlaParallelAttrBagging}},
+    \code{\link{hlaSetKernelTarget}}
 }
 
 \examples{
@@ -109,7 +110,7 @@ model <- hlaAttrBagging(hlatab$training, train.geno, nclassifier=4,
 summary(model)
 
 # validation
-pred <- predict(model, test.geno)
+pred <- hlaPredict(model, test.geno)
 # compare
 (comp <- hlaCompareAllele(hlatab$validation, pred, allele.limit=model,
     call.threshold=0))

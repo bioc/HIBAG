@@ -26,8 +26,8 @@ hlaAttrBagging(hla, snp, nclassifier=100L, mtry=c("sqrt", "all", "one"),
     \item{nthread}{specify the number of threads used in the model building;
         if \code{TRUE}, use the number of threads returned from
         \code{RcppParallel::defaultNumThreads()} (by default using all threads)}
-    \item{verbose}{if TRUE, show information}
-    \item{verbose.detail}{if TRUE, show more information}
+    \item{verbose}{if \code{TRUE}, show information}
+    \item{verbose.detail}{if \code{TRUE}, show more information}
 }
 \details{
     \code{mtry} (the number of variables randomly sampled as candidates
@@ -47,8 +47,10 @@ removed from the candidate SNP set for future searching. Parsimonious selection
 helps to improve the computational efficiency by reducing the searching times
 on non-informative SNP markers.
 
-    A parallel version of \code{hlaAttrBagging} is
-\code{\link{hlaParallelAttrBagging}}.
+    \code{\link{hlaParallelAttrBagging}} extends \code{hlaAttrBagging} to allow
+parallel computing with multiple compute nodes in a cluster. An autosave
+function is available in \code{\link{hlaParallelAttrBagging}} when an new
+individual classifier is built internally without completing the ensemble.
 }
 \value{
     Return an object of \code{\link{hlaAttrBagClass}}:
@@ -77,7 +79,8 @@ on non-informative SNP markers.
 \seealso{
     \code{\link{hlaClose}}, \code{\link{hlaParallelAttrBagging}},
     \code{\link{summary.hlaAttrBagClass}},
-    \code{\link{predict.hlaAttrBagClass}}, \code{\link{hlaPredict}}
+    \code{\link{predict.hlaAttrBagClass}}, \code{\link{hlaPredict}},
+    \code{\link{hlaSetKernelTarget}}
 }
 
 \examples{
@@ -119,7 +122,7 @@ model <- hlaAttrBagging(hlatab$training, train.geno, nclassifier=4,
 summary(model)
 
 # validation
-pred <- predict(model, test.geno)
+pred <- hlaPredict(model, test.geno)
 summary(pred)
 
 # compare
@@ -150,7 +153,7 @@ model <- hlaModelFromObj(mobj)
 test.geno <- get(load("testgeno.RData"))
 hlatab <- get(load("HLASplit.RData"))
 
-pred <- predict(model, test.geno, type="response")
+pred <- hlaPredict(model, test.geno, type="response")
 summary(pred)
 
 # compare

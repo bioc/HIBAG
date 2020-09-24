@@ -9,17 +9,20 @@
 \usage{
 hlaParallelAttrBagging(cl, hla, snp, auto.save="",
     nclassifier=100L, mtry=c("sqrt", "all", "one"), prune=TRUE, na.rm=TRUE,
-    mono.rm=TRUE, stop.cluster=FALSE, verbose=TRUE)
+    mono.rm=TRUE, stop.cluster=FALSE, verbose=TRUE, verbose.detail=FALSE)
 }
 \arguments{
-    \item{cl}{if a cluster object, created by the \link{parallel-package};
-        if \code{NULL}, serial implementation will be performed; if numeric,
-        specify the number of cores}
+    \item{cl}{\code{NULL}, \code{FALSE}, \code{TRUE}, an integer, or a cluster
+        object created by the \link{parallel-package}; if \code{NULL} or
+        \code{FALSE}, use the serial implementation; if \code{TRUE}, use the
+        number of threads returned from \code{RcppParallel::defaultNumThreads()}
+        (by default using all threads); if an integer, specify the number of
+        threads}
     \item{hla}{training HLA types, an object of \code{\link{hlaAlleleClass}}}
     \item{snp}{training SNP genotypes, an object of
         \code{\link{hlaSNPGenoClass}}}
     \item{auto.save}{specify a autosaved file name for an R object
-        (.rda or .RData); "", no file saving}
+        (.rda, .RData or .rds); "", no file saving}
     \item{nclassifier}{the total number of individual classifiers}
     \item{mtry}{a character or a numeric value, the number of variables randomly
         sampled as candidates for each selection. See details}
@@ -29,7 +32,8 @@ hlaParallelAttrBagging(cl, hla, snp, auto.save="",
     \item{mono.rm}{if TRUE, remove monomorphic SNPs}
     \item{stop.cluster}{\code{TRUE}: stop cluster nodes after completing
         the calculation}
-    \item{verbose}{if TRUE, show information}
+    \item{verbose}{if \code{TRUE}, show information}
+    \item{verbose.detail}{if \code{TRUE}, show more information}
 }
 \details{
     \code{mtry} (the number of variables randomly sampled as candidates for
@@ -48,6 +52,9 @@ if a new SNP predictor reduces the current out-of-bag accuracy, then it is
 removed from the candidate SNP set for future searching. Parsimonious selection
 helps to improve the computational efficiency by reducing the searching times
 of non-informative SNP markers.
+
+    An autosave function is available in \code{hlaParallelAttrBagging} when an
+new individual classifier is built internally without completing the ensemble.
 }
 \value{
     Return an object of \code{\link{hlaAttrBagClass}} if \code{auto.save=""}.
@@ -60,7 +67,8 @@ of non-informative SNP markers.
 }
 \author{Xiuwen Zheng}
 \seealso{
-    \code{\link{hlaAttrBagging}}, \code{\link{hlaClose}}
+    \code{\link{hlaAttrBagging}}, \code{\link{hlaClose}},
+    \code{\link{hlaSetKernelTarget}}
 }
 
 \examples{

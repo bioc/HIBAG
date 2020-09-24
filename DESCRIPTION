@@ -1,8 +1,8 @@
 Package: HIBAG
 Type: Package
 Title: HLA Genotype Imputation with Attribute Bagging
-Version: 1.25.1
-Date: 2020-09-11
+Version: 1.25.2
+Date: 2020-09-23
 Depends: R (>= 3.2.0)
 Imports: methods, RcppParallel
 Suggests: parallel, knitr, gdsfmt, SNPRelate, SeqArray, ggplot2, reshape2

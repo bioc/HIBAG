@@ -18,7 +18,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // ===============================================================
-// Name           : LibHLA_ext_avx512bw
+// Name           : LibHLA_ext_avx512f
 // Author         : Xiuwen Zheng
 // Kernel Version : 1.5
 // Copyright      : Xiuwen Zheng (GPL v3)
@@ -44,38 +44,35 @@ using namespace std;
 using namespace HLA_LIB;
 
 
-#ifdef HIBAG_CPU_ARCH_X86_AVX512BW
-extern const bool HIBAG_ALGORITHM_AVX512BW = true;
+#ifdef HIBAG_CPU_ARCH_X86_AVX512F
+extern const bool HIBAG_ALGORITHM_AVX512F = true;
 #else
-extern const bool HIBAG_ALGORITHM_AVX512BW = false;
+extern const bool HIBAG_ALGORITHM_AVX512F = false;
 #endif
 
 
-#define SIMD_NAME(NAME)  NAME ## _avx512bw
-#define THROW_ERROR      throw ErrHLA("No AVX512BW support!")
+#define SIMD_NAME(NAME)  NAME ## _avx512f
+#define THROW_ERROR      throw ErrHLA("No AVX512F support!")
 
 
-#ifdef HIBAG_CPU_ARCH_X86_AVX512BW
+#ifdef HIBAG_CPU_ARCH_X86_AVX512F
 
 #ifdef __ICC
-	#pragma intel optimization_parameter target_arch=CORE-AVX512
+	#pragma intel optimization_parameter target_arch=COMMON-AVX512
 #   define TARGET_AVX512    __attribute__((target("avx512f")))
 #else
 #   if !defined(__AVX512F__) && !defined(__clang__)
 		#pragma GCC target("avx512f")
 #   endif
-#   if !defined(__AVX512BW__) && !defined(__clang__)
-		#pragma GCC target("avx512bw")
-#   endif
-#   define TARGET_AVX512    __attribute__((target("avx512f,avx512bw")))
+#   define TARGET_AVX512    __attribute__((target("avx512f")))
 #endif
 
 #include <xmmintrin.h>  // SSE
 #include <emmintrin.h>  // SSE2
-#include <immintrin.h>  // AVX, AVX2, AVX512F, AVX512BW
+#include <immintrin.h>  // AVX, AVX2, AVX512F
 
 #undef SIMD_NAME
-#define SIMD_NAME(NAME)  TARGET_AVX512 NAME ## _avx512bw
+#define SIMD_NAME(NAME)  TARGET_AVX512 NAME ## _avx512f
 
 #if defined(__MINGW32__) || defined(__MINGW64__) || defined(__ICC)
 #   define SIMD_ANDNOT_I256(x1, x2)    _mm256_andnot_si256(x1, x2)
@@ -90,7 +87,7 @@ extern const bool HIBAG_ALGORITHM_AVX512BW = false;
 
 
 /// Prepare the internal genotype structure
-struct TGenoStruct_512bw
+struct TGenoStruct_512f
 {
 public:
 	__m128i S1, S2;  ///< packed genotypes
@@ -102,7 +99,7 @@ public:
 #ifndef __ICC
 	TARGET_AVX512
 #endif
-	inline TGenoStruct_512bw(const CHaplotypeList &Haplo, const TGenotype &G)
+	inline TGenoStruct_512f(const CHaplotypeList &Haplo, const TGenotype &G)
 	{
 		const INT64 *s1 = G.PackedSNP1, *s2 = G.PackedSNP2;
 		Low64b = (Haplo.Num_SNP <= 64);
@@ -128,7 +125,7 @@ public:
 
 
 static ALWAYS_INLINE TARGET_AVX512
-	int hamm_d(const TGenoStruct_512bw &G, const THaplotype &H1, const THaplotype &H2)
+	int hamm_d(const TGenoStruct_512f &G, const THaplotype &H1, const THaplotype &H2)
 {
 	const INT64 *h1 = H1.PackedHaplo, *h2 = H2.PackedHaplo;
 	// here, UTYPE = int64_t
@@ -161,18 +158,31 @@ static ALWAYS_INLINE TARGET_AVX512
 }
 
 
-static inline TARGET_AVX512
-	size_t add_geno_freq4(size_t n, const THaplotype *i1, size_t i2,
-		const TGenoStruct_512bw &GS, double &prob)
+// defined for Wojciech Mula algorithm's popcnt in 64-bit integers
+static ALWAYS_INLINE TARGET_AVX512 __m256i shuffle_add_epi8(__m256i va, __m256i vb)
 {
-	// defined for Wojciech Mula algorithm's popcnt in 64-bit integers
-	const __m512i pcnt_lookup = {
-		0x0302020102010100LL, 0x0403030203020201LL,
-		0x0302020102010100LL, 0x0403030203020201LL,
+	const __m256i pcnt_lookup = {
 		0x0302020102010100LL, 0x0403030203020201LL,
 		0x0302020102010100LL, 0x0403030203020201LL };
-	const __m512i pcnt_low_mask = _mm512_set1_epi8(0x0F);
+	const __m256i pcnt_low_mask = _mm256_set1_epi8(0x0F);
 
+	__m256i lo_a = va & pcnt_low_mask;
+	__m256i lo_b = vb & pcnt_low_mask;
+	__m256i hi_a = _mm256_srli_epi32(va, 4) & pcnt_low_mask;
+	__m256i hi_b = _mm256_srli_epi32(vb, 4) & pcnt_low_mask;
+	__m256i pc1_a = _mm256_shuffle_epi8(pcnt_lookup, lo_a);
+	__m256i pc1_b = _mm256_shuffle_epi8(pcnt_lookup, lo_b);
+	__m256i pc2_a = _mm256_shuffle_epi8(pcnt_lookup, hi_a);
+	__m256i pc2_b = _mm256_shuffle_epi8(pcnt_lookup, hi_b);
+	__m256i tot_a = _mm256_add_epi8(pc1_a, pc2_a);
+	__m256i tot_b = _mm256_add_epi8(pc1_b, pc2_b);
+	return _mm256_add_epi8(tot_a, tot_b);
+}
+
+static inline TARGET_AVX512
+	size_t add_geno_freq4(size_t n, const THaplotype *i1, size_t i2,
+		const TGenoStruct_512f &GS, double &prob)
+{
 	const double ff = 2 * i1->Freq;
 	if (GS.Low64b)
 	{
@@ -186,18 +196,14 @@ static inline TARGET_AVX512
 			__m512i MASK = SIMD_ANDNOT_I512(M, (H1_8 ^ S2) | (H2_8 ^ S1));
 			__m512i va = (H1_8 ^ S1) & MASK, vb = (H2_8 ^ S2) & MASK;
 			// popcount for 64b integers
-			__m512i lo_a = va & pcnt_low_mask;
-			__m512i lo_b = vb & pcnt_low_mask;
-			__m512i hi_a = _mm512_srli_epi32(va, 4) & pcnt_low_mask;
-			__m512i hi_b = _mm512_srli_epi32(vb, 4) & pcnt_low_mask;
-			__m512i pc1_a = _mm512_shuffle_epi8(pcnt_lookup, lo_a);
-			__m512i pc1_b = _mm512_shuffle_epi8(pcnt_lookup, lo_b);
-			__m512i pc2_a = _mm512_shuffle_epi8(pcnt_lookup, hi_a);
-			__m512i pc2_b = _mm512_shuffle_epi8(pcnt_lookup, hi_b);
-			__m512i tot_a = _mm512_add_epi8(pc1_a, pc2_a);
-			__m512i tot_b = _mm512_add_epi8(pc1_b, pc2_b);
-			__m512i total = _mm512_add_epi8(tot_a, tot_b);
-			__m512i ii4 = _mm512_sad_epu8(total, _mm512_setzero_si512());
+			__m256i tot_l = shuffle_add_epi8(
+				_mm512_castsi512_si256(va), _mm512_castsi512_si256(vb));
+			__m256i tot_h = shuffle_add_epi8(
+				_mm512_extracti64x4_epi64(va, 1), _mm512_extracti64x4_epi64(vb, 1));
+			const __m256i zero = _mm256_setzero_si256();
+			__m256i ii4_l = _mm256_sad_epu8(tot_l, zero);
+			__m256i ii4_h = _mm256_sad_epu8(tot_h, zero);
+			__m512i ii4 = _mm512_inserti64x4(_mm512_castsi256_si512(ii4_l), ii4_h, 1);
 			// eight frequencies
 			__m512d f = _mm512_i64gather_pd(ii4, EXP_LOG_MIN_RARE_FREQ, 8);
 			__m512d f2 = _mm512_loadu_pd(GS.p_Freq + i2);
@@ -215,19 +221,7 @@ static inline TARGET_AVX512
 			__m256i MASK = SIMD_ANDNOT_I256(M, (H1 ^ S2) | (H2 ^ S1));
 			__m256i va = (H1 ^ S1) & MASK, vb = (H2 ^ S2) & MASK;
 			// popcount for 64b integers
-			const __m256i pcnt_lookup_256 = _mm512_castsi512_si256(pcnt_lookup);
-			const __m256i pcnt_low_mask_256 = _mm512_castsi512_si256(pcnt_low_mask);
-			__m256i lo_a = va & pcnt_low_mask_256;
-			__m256i lo_b = vb & pcnt_low_mask_256;
-			__m256i hi_a = _mm256_srli_epi32(va, 4) & pcnt_low_mask_256;
-			__m256i hi_b = _mm256_srli_epi32(vb, 4) & pcnt_low_mask_256;
-			__m256i pc1_a = _mm256_shuffle_epi8(pcnt_lookup_256, lo_a);
-			__m256i pc1_b = _mm256_shuffle_epi8(pcnt_lookup_256, lo_b);
-			__m256i pc2_a = _mm256_shuffle_epi8(pcnt_lookup_256, hi_a);
-			__m256i pc2_b = _mm256_shuffle_epi8(pcnt_lookup_256, hi_b);
-			__m256i tot_a = _mm256_add_epi8(pc1_a, pc2_a);
-			__m256i tot_b = _mm256_add_epi8(pc1_b, pc2_b);
-			__m256i total = _mm256_add_epi8(tot_a, tot_b);
+			__m256i total = shuffle_add_epi8(va, vb);
 			__m256i ii4 = _mm256_sad_epu8(total, _mm256_setzero_si256());
 			// four frequencies
 			__m256d f = _mm256_i64gather_pd(EXP_LOG_MIN_RARE_FREQ, ii4, 8);
@@ -255,30 +249,18 @@ static inline TARGET_AVX512
 			__m512i va_0 = (H1_0_8 ^ S1_0) & MASK_0, vb_0 = (H2_0_8 ^ S2_0) & MASK_0;
 			__m512i va_1 = (H1_1_8 ^ S1_1) & MASK_1, vb_1 = (H2_1_8 ^ S2_1) & MASK_1;
 			// popcount for 64b integers
-			__m512i lo_a_0 = va_0 & pcnt_low_mask;
-			__m512i lo_a_1 = va_1 & pcnt_low_mask;
-			__m512i lo_b_0 = vb_0 & pcnt_low_mask;
-			__m512i lo_b_1 = vb_1 & pcnt_low_mask;
-			__m512i hi_a_0 = _mm512_srli_epi32(va_0, 4) & pcnt_low_mask;
-			__m512i hi_a_1 = _mm512_srli_epi32(va_1, 4) & pcnt_low_mask;
-			__m512i hi_b_0 = _mm512_srli_epi32(vb_0, 4) & pcnt_low_mask;
-			__m512i hi_b_1 = _mm512_srli_epi32(vb_1, 4) & pcnt_low_mask;
-			__m512i pc1_a_0 = _mm512_shuffle_epi8(pcnt_lookup, lo_a_0);
-			__m512i pc1_a_1 = _mm512_shuffle_epi8(pcnt_lookup, lo_a_1);
-			__m512i pc1_b_0 = _mm512_shuffle_epi8(pcnt_lookup, lo_b_0);
-			__m512i pc1_b_1 = _mm512_shuffle_epi8(pcnt_lookup, lo_b_1);
-			__m512i pc2_a_0 = _mm512_shuffle_epi8(pcnt_lookup, hi_a_0);
-			__m512i pc2_a_1 = _mm512_shuffle_epi8(pcnt_lookup, hi_a_1);
-			__m512i pc2_b_0 = _mm512_shuffle_epi8(pcnt_lookup, hi_b_0);
-			__m512i pc2_b_1 = _mm512_shuffle_epi8(pcnt_lookup, hi_b_1);
-			__m512i tot_a_0 = _mm512_add_epi8(pc1_a_0, pc2_a_0);
-			__m512i tot_a_1 = _mm512_add_epi8(pc1_a_1, pc2_a_1);
-			__m512i tot_b_0 = _mm512_add_epi8(pc1_b_0, pc2_b_0);
-			__m512i tot_b_1 = _mm512_add_epi8(pc1_b_1, pc2_b_1);
-			__m512i tot_0 = _mm512_add_epi8(tot_a_0, tot_b_0);
-			__m512i tot_1 = _mm512_add_epi8(tot_a_1, tot_b_1);
-			__m512i total = _mm512_add_epi8(tot_0, tot_1);
-			__m512i ii4 = _mm512_sad_epu8(total, _mm512_setzero_si512());
+			__m256i tot_l0 = shuffle_add_epi8(
+				_mm512_castsi512_si256(va_0), _mm512_castsi512_si256(vb_0));
+			__m256i tot_l1 = shuffle_add_epi8(
+				_mm512_castsi512_si256(va_1), _mm512_castsi512_si256(vb_1));
+			__m256i tot_h0 = shuffle_add_epi8(
+				_mm512_extracti64x4_epi64(va_0, 1), _mm512_extracti64x4_epi64(vb_0, 1));
+			__m256i tot_h1 = shuffle_add_epi8(
+				_mm512_extracti64x4_epi64(va_1, 1), _mm512_extracti64x4_epi64(vb_1, 1));
+			const __m256i zero = _mm256_setzero_si256();
+			__m256i ii4_l = _mm256_sad_epu8(_mm256_add_epi8(tot_l0, tot_l1), zero);
+			__m256i ii4_h = _mm256_sad_epu8(_mm256_add_epi8(tot_h0, tot_h1), zero);
+			__m512i ii4 = _mm512_inserti64x4(_mm512_castsi256_si512(ii4_l), ii4_h, 1);
 			// eight frequencies
 			__m512d f = _mm512_i64gather_pd(ii4, EXP_LOG_MIN_RARE_FREQ, 8);
 			__m512d f2 = _mm512_loadu_pd(GS.p_Freq + i2);
@@ -303,30 +285,8 @@ static inline TARGET_AVX512
 			__m256i va_0 = (H1_0 ^ S1_0) & MASK_0, vb_0 = (H2_0 ^ S2_0) & MASK_0;
 			__m256i va_1 = (H1_1 ^ S1_1) & MASK_1, vb_1 = (H2_1 ^ S2_1) & MASK_1;
 			// popcount for 64b integers
-			const __m256i pcnt_lookup_256 = _mm512_castsi512_si256(pcnt_lookup);
-			const __m256i pcnt_low_mask_256 = _mm512_castsi512_si256(pcnt_low_mask);
-			__m256i lo_a_0 = va_0 & pcnt_low_mask_256;
-			__m256i lo_a_1 = va_1 & pcnt_low_mask_256;
-			__m256i lo_b_0 = vb_0 & pcnt_low_mask_256;
-			__m256i lo_b_1 = vb_1 & pcnt_low_mask_256;
-			__m256i hi_a_0 = _mm256_srli_epi32(va_0, 4) & pcnt_low_mask_256;
-			__m256i hi_a_1 = _mm256_srli_epi32(va_1, 4) & pcnt_low_mask_256;
-			__m256i hi_b_0 = _mm256_srli_epi32(vb_0, 4) & pcnt_low_mask_256;
-			__m256i hi_b_1 = _mm256_srli_epi32(vb_1, 4) & pcnt_low_mask_256;
-			__m256i pc1_a_0 = _mm256_shuffle_epi8(pcnt_lookup_256, lo_a_0);
-			__m256i pc1_a_1 = _mm256_shuffle_epi8(pcnt_lookup_256, lo_a_1);
-			__m256i pc1_b_0 = _mm256_shuffle_epi8(pcnt_lookup_256, lo_b_0);
-			__m256i pc1_b_1 = _mm256_shuffle_epi8(pcnt_lookup_256, lo_b_1);
-			__m256i pc2_a_0 = _mm256_shuffle_epi8(pcnt_lookup_256, hi_a_0);
-			__m256i pc2_a_1 = _mm256_shuffle_epi8(pcnt_lookup_256, hi_a_1);
-			__m256i pc2_b_0 = _mm256_shuffle_epi8(pcnt_lookup_256, hi_b_0);
-			__m256i pc2_b_1 = _mm256_shuffle_epi8(pcnt_lookup_256, hi_b_1);
-			__m256i tot_a_0 = _mm256_add_epi8(pc1_a_0, pc2_a_0);
-			__m256i tot_a_1 = _mm256_add_epi8(pc1_a_1, pc2_a_1);
-			__m256i tot_b_0 = _mm256_add_epi8(pc1_b_0, pc2_b_0);
-			__m256i tot_b_1 = _mm256_add_epi8(pc1_b_1, pc2_b_1);
-			__m256i tot_0 = _mm256_add_epi8(tot_a_0, tot_b_0);
-			__m256i tot_1 = _mm256_add_epi8(tot_a_1, tot_b_1);
+			__m256i tot_0 = shuffle_add_epi8(va_0, vb_0);
+			__m256i tot_1 = shuffle_add_epi8(va_1, vb_1);
 			__m256i total = _mm256_add_epi8(tot_0, tot_1);
 			__m256i ii4 = _mm256_sad_epu8(total, _mm256_setzero_si256());
 			// four frequencies
@@ -346,7 +306,7 @@ static inline TARGET_AVX512
 THLAType SIMD_NAME(CAlg_Prediction::_BestGuess)(const CHaplotypeList &Haplo,
 	const TGenotype &Geno)
 {
-	const TGenoStruct_512bw GS(Haplo, Geno);
+	const TGenoStruct_512f GS(Haplo, Geno);
 	THLAType rv;
 	rv.Allele1 = rv.Allele2 = NA_INTEGER;
 	double max=0, prob;
@@ -420,7 +380,7 @@ THLAType SIMD_NAME(CAlg_Prediction::_BestGuess)(const CHaplotypeList &Haplo,
 double SIMD_NAME(CAlg_Prediction::_PostProb)(const CHaplotypeList &Haplo,
 	const TGenotype &Geno, const THLAType &HLA)
 {
-	const TGenoStruct_512bw GS(Haplo, Geno);
+	const TGenoStruct_512f GS(Haplo, Geno);
 	int H1=HLA.Allele1, H2=HLA.Allele2;
 	if (H1 > H2) std::swap(H1, H2);
 	const int nHLA = Haplo.nHLA();
@@ -490,7 +450,7 @@ double SIMD_NAME(CAlg_Prediction::_PostProb)(const CHaplotypeList &Haplo,
 double SIMD_NAME(CAlg_Prediction::_PostProb2)(const CHaplotypeList &Haplo,
 	const TGenotype &Geno, double Prob[])
 {
-	const TGenoStruct_512bw GS(Haplo, Geno);
+	const TGenoStruct_512f GS(Haplo, Geno);
 	double *p = Prob, sum;
 	const int nHLA = Haplo.nHLA();
 	THaplotype *base=Haplo.List, *I1=base, *I2;
