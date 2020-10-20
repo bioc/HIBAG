@@ -27,20 +27,20 @@ Release Version: 1.24.0
 
 ### Changes in Bioconductor Version (since v1.26.0, Y2020):
 
-* Kernel Version: v1.5
-* The kernel v1.5 generates the same training model as v1.4, but 2x ~ 6x faster, by taking advantage of Intel AVX, AVX2 and AVX512 intrinsics
+* Kernel Version: **v1.5**
+* The kernel v1.5 generates the same training model as v1.4, but 2-6x faster, by taking advantage of Intel AVX, AVX2 and AVX512 intrinsics if available.
 
 
 ### Changes in Bioconductor Version (since v1.14.0, Y2017):
 
-* Kernel Version: v1.4
+* Kernel Version: **v1.4**
 * The kernel v1.4 outputs exactly the same model parameter estimates as v1.3, and the model training with v1.4 is 1.2 times faster than v1.3.
 * Modify the kernel to support the GPU extension
 
 
 ### Changes in Bioconductor Version (since v1.3.0, Y2013):
 
-* Kernel Version: v1.3
+* Kernel Version: **v1.3**
 * Optimize the calculation of hamming distance using SSE2 and hardware POPCNT instructions if available
 * Hardware POPCNT: 2.4x speedup for large-scale data, compared to the implementation in v1.2.4
 * SSE2 popcount implementation without hardware POPCNT: 1.5x speedup for large-scale data, compared to the implementation in v1.2.4
@@ -86,30 +86,10 @@ The `install_github()` approach requires that you build from source, i.e. `make`
 
 ### CPU with Intel Intrinsics
 
-* Install the package from the source code with the support of hardware POPCNT (requiring SSE4.2):
-You have to customize the package compilation, see: [CRAN: Customizing-package-compilation](http://cran.r-project.org/doc/manuals/r-release/R-admin.html#Customizing-package-compilation)
+* GCC (>= v6.0) is strongly recommended to compile the HIBAG package (Intel ICC is not suggested).
 
-Change `~/.R/Makevars` to, if your machine supports SSE4.2 or higher, assuming GNU Compilers (gcc/g++) or Clang compiler (clang++) are installed:
-```sh
-## for C code
-CFLAGS=-g -O3 -march=native -mtune=native
-## for C++ code
-CXXFLAGS=-g -O3 -march=native -mtune=native
-```
-Or force to create hardware POPCNT code:
-```sh
-## for C code
-CFLAGS=-g -O3 -mpopcnt -msse4.2
-## for C++ code
-CXXFLAGS=-g -O3 -mpopcnt -msse4.2
-```
+* `HIBAG::hlaSetKernelTarget("max")` can be used to maximize the algorithm efficiency.
 
-If the package compilation succeeds with hardware POPCNT instructions, you should see a welcome message after loading the package:
-```
-HIBAG (HLA Genotype Imputation with Attribute Bagging)
-Kernel Version: v1.4
-Supported by Streaming SIMD Extensions (SSE2 + POPCNT)
-```
 
 ### GPU with OpenCL
 
