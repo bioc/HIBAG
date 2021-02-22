@@ -1,7 +1,7 @@
 // ===============================================================
 //
 // HIBAG R package (HLA Genotype Imputation with Attribute Bagging)
-// Copyright (C) 2011-2020   Xiuwen Zheng (zhengx@u.washington.edu)
+// Copyright (C) 2011-2021   Xiuwen Zheng (zhengx@u.washington.edu)
 // All rights reserved.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -408,7 +408,7 @@ static int _Need_New_HIBAG_Model()
 	for (int i=0; i < MODEL_NUM_LIMIT; i++)
 		if (_HIBAG_MODELS_[i] == NULL) return i;
 	throw ErrHLA("No memory space to store a new HIBAG model, "
-		"please call \"hlaClose\" to release unused HIBAG models.");
+		"please call \"hlaClose()\" to release unused HIBAG models.");
 }
 
 /// check the model
@@ -423,6 +423,50 @@ static void _Check_HIBAG_Model(int model)
 }
 
 
+static void model_free(SEXP ptr_obj)
+{
+	// pointer
+	void *ptr = R_ExternalPtrAddr(ptr_obj);
+	if (!ptr) return;
+	R_ClearExternalPtr(ptr_obj);
+	// file ID
+	SEXP ID = R_ExternalPtrProtected(ptr_obj);
+	int i = Rf_asInteger(ID);
+	if (TYPEOF(ID)==INTSXP && Rf_length(ID)>=1)
+		INTEGER(ID)[0] = -1;
+	// free model
+	if ((0 <= i) && (i < MODEL_NUM_LIMIT))
+	{
+		CAttrBag_Model *m = _HIBAG_MODELS_[i];
+		if (m != NULL)
+		{
+			bool has_error = false;
+			try {
+				_HIBAG_MODELS_[i] = NULL;
+				delete m;
+			} catch (exception &E) {
+				_LastError = E.what(); has_error = true;
+			} catch (const char *E) {
+				_LastError = E; has_error = true;
+			} catch (...) {
+				_LastError = "unknown error!"; has_error = true;
+			}
+			if (has_error) error(_LastError.c_str());
+		}
+	}
+}
+
+static SEXP new_model_id(int id, CAttrBag_Model *mod_ptr)
+{
+	SEXP ans = PROTECT(ScalarInteger(id));
+	SEXP ptr = PROTECT(R_MakeExternalPtr(mod_ptr, R_NilValue, ans));
+	R_RegisterCFinalizerEx(ptr, model_free, (Rboolean)TRUE);
+	Rf_setAttrib(ans, install("handle_ptr"), ptr);
+	UNPROTECT(2);
+	return ans;
+}
+
+
 /**
  *  Build a HIBAG model
  *
@@ -433,20 +477,20 @@ static void _Check_HIBAG_Model(int model)
 **/
 SEXP HIBAG_New(SEXP nSamp, SEXP nSNP, SEXP nHLA)
 {
-	int NumSamp = Rf_asInteger(nSamp);
-	if (NumSamp <= 0) error("Invalid number of samples.");
-
-	int NumSNP  = Rf_asInteger(nSNP);
-	if (NumSNP <= 0) error("Invalid number of SNPs.");
-
-	int NumHLA  = Rf_asInteger(nHLA);
-	if (NumHLA <= 0) error("Invalid number of unique HLA allele.");
-
+	int n_samp = Rf_asInteger(nSamp);
+	if (n_samp <= 0)
+		error("Invalid number of samples: %d.", n_samp);
+	int n_snp  = Rf_asInteger(nSNP);
+	if (n_snp <= 0)
+		error("Invalid number of SNPs: %d.", n_snp);
+	int n_hla  = Rf_asInteger(nHLA);
+	if (n_hla <= 0)
+		error("Invalid number of unique HLA alleles: %d.", n_hla);
 	CORE_TRY
-		int model = _Need_New_HIBAG_Model();
-		_HIBAG_MODELS_[model] = new CAttrBag_Model;
-		_HIBAG_MODELS_[model]->InitTraining(NumSNP, NumSamp, NumHLA);
-		rv_ans = ScalarInteger(model);
+		int id = _Need_New_HIBAG_Model();
+		CAttrBag_Model *obj = _HIBAG_MODELS_[id] = new CAttrBag_Model;
+		obj->InitTraining(n_snp, n_samp, n_hla);
+		rv_ans = new_model_id(id, obj);
 	CORE_CATCH
 }
 
@@ -462,16 +506,24 @@ SEXP HIBAG_New(SEXP nSamp, SEXP nSNP, SEXP nHLA)
  *  \param H2         the second HLA allele of a HLA type
  *  \return the model index
 **/
-SEXP HIBAG_Training(SEXP nSNP, SEXP nSamp, SEXP snp_geno,
-	SEXP nHLA, SEXP H1, SEXP H2)
+SEXP HIBAG_Training(SEXP nSNP, SEXP nSamp, SEXP snp_geno, SEXP nHLA,
+	SEXP H1, SEXP H2)
 {
+	int n_samp = Rf_asInteger(nSamp);
+	if (n_samp <= 0)
+		error("Invalid number of samples: %d.", n_samp);
+	int n_snp  = Rf_asInteger(nSNP);
+	if (n_snp <= 0)
+		error("Invalid number of SNPs: %d.", n_snp);
+	int n_hla  = Rf_asInteger(nHLA);
+	if (n_hla <= 0)
+		error("Invalid number of unique HLA alleles: %d.", n_hla);
 	CORE_TRY
-		int model = _Need_New_HIBAG_Model();
-		_HIBAG_MODELS_[model] = new CAttrBag_Model;
-		_HIBAG_MODELS_[model]->InitTraining(Rf_asInteger(nSNP),
-			Rf_asInteger(nSamp), INTEGER(snp_geno),
-			Rf_asInteger(nHLA), INTEGER(H1), INTEGER(H2));
-		rv_ans = ScalarInteger(model);
+		int id = _Need_New_HIBAG_Model();
+		CAttrBag_Model *obj = _HIBAG_MODELS_[id] = new CAttrBag_Model;
+		obj->InitTraining(n_snp, n_samp, INTEGER(snp_geno),
+			n_hla, INTEGER(H1), INTEGER(H2));
+		rv_ans = new_model_id(id, obj);
 	CORE_CATCH
 }
 
@@ -484,8 +536,10 @@ SEXP HIBAG_Training(SEXP nSNP, SEXP nSamp, SEXP snp_geno,
 SEXP HIBAG_Close(SEXP model)
 {
 	int midx = Rf_asInteger(model);
+	if (midx < 0) return R_NilValue;
 	CORE_TRY
 		_Check_HIBAG_Model(midx);
+		INTEGER(model)[0] = -1;
 		CAttrBag_Model *m = _HIBAG_MODELS_[midx];
 		_HIBAG_MODELS_[midx] = NULL;
 		delete m;
@@ -519,6 +573,10 @@ SEXP HIBAG_NewClassifiers(SEXP model, SEXP NClassifier, SEXP MTry,
 		_Check_HIBAG_Model(midx);
 		GetRNGstate();
 
+		GPUExtProcPtr = NULL;
+		if (!Rf_isNull(proc_ptr)) 
+			GPUExtProcPtr = (TypeGPUExtProc *)R_ExternalPtrAddr(proc_ptr);
+
 	#if RCPP_PARALLEL_USE_TBB
 		tbb::task_scheduler_init init(abs(nthread));
 	#endif
@@ -529,15 +587,11 @@ SEXP HIBAG_NewClassifiers(SEXP model, SEXP NClassifier, SEXP MTry,
 		#else
 			int n = 1;
 		#endif
-			Rprintf("# of threads: %d\n", n);
+			if (!GPUExtProcPtr)
+				Rprintf("# of threads: %d\n", n);
 			Rprintf("[-] %s\n", date_text());
 		}
 
-		if (!Rf_isNull(proc_ptr))
-		{
-			error("GPU is disable, and will be enable in future version.");
-			GPUExtProcPtr = (TypeGPUExtProc *)R_ExternalPtrAddr(proc_ptr);
-		}
 		try {
 			_HIBAG_MODELS_[midx]->BuildClassifiers(nclassifier, mtry,
 				prune, verbose, verbose_detail);
@@ -578,6 +632,10 @@ SEXP HIBAG_Predict_Resp(SEXP Model, SEXP GenoMat, SEXP NumSamp,
 		_Check_HIBAG_Model(midx);
 		CAttrBag_Model &M = *_HIBAG_MODELS_[midx];
 
+		GPUExtProcPtr = NULL;
+		if (!Rf_isNull(proc_ptr)) 
+			GPUExtProcPtr = (TypeGPUExtProc *)R_ExternalPtrAddr(proc_ptr);
+
 	#if RCPP_PARALLEL_USE_TBB
 		tbb::task_scheduler_init init(nthread);
 	#endif
@@ -588,7 +646,8 @@ SEXP HIBAG_Predict_Resp(SEXP Model, SEXP GenoMat, SEXP NumSamp,
 		#else
 			int n = 1;
 		#endif
-			Rprintf("# of threads: %d\n", n);
+			if (!GPUExtProcPtr)
+				Rprintf("# of threads: %d\n", n);
 		}
 
 		rv_ans = PROTECT(NEW_LIST(4));
@@ -601,8 +660,6 @@ SEXP HIBAG_Predict_Resp(SEXP Model, SEXP GenoMat, SEXP NumSamp,
 		SEXP out_Matching = NEW_NUMERIC(nSamp);
 		SET_ELEMENT(rv_ans, 3, out_Matching);
 
-		if (!Rf_isNull(proc_ptr))
-			GPUExtProcPtr = (TypeGPUExtProc *)R_ExternalPtrAddr(proc_ptr);
 		try {
 			M.PredictHLA(INTEGER(GenoMat), nSamp, vote_method,
 				INTEGER(out_H1), INTEGER(out_H2), REAL(out_Prob),
@@ -644,6 +701,10 @@ SEXP HIBAG_Predict_Resp_Prob(SEXP Model, SEXP GenoMat, SEXP NumSamp,
 		_Check_HIBAG_Model(midx);
 		CAttrBag_Model &M = *_HIBAG_MODELS_[midx];
 
+		GPUExtProcPtr = NULL;
+		if (!Rf_isNull(proc_ptr)) 
+			GPUExtProcPtr = (TypeGPUExtProc *)R_ExternalPtrAddr(proc_ptr);
+
 	#if RCPP_PARALLEL_USE_TBB
 		tbb::task_scheduler_init init(nthread);
 	#endif
@@ -654,7 +715,8 @@ SEXP HIBAG_Predict_Resp_Prob(SEXP Model, SEXP GenoMat, SEXP NumSamp,
 		#else
 			int n = 1;
 		#endif
-			Rprintf("# of threads: %d\n", n);
+			if (!GPUExtProcPtr)
+				Rprintf("# of threads: %d\n", n);
 		}
 
 		rv_ans = PROTECT(NEW_LIST(5));
@@ -669,8 +731,6 @@ SEXP HIBAG_Predict_Resp_Prob(SEXP Model, SEXP GenoMat, SEXP NumSamp,
 		SEXP out_MatProb = allocMatrix(REALSXP, M.nHLA()*(M.nHLA()+1)/2, nSamp);
 		SET_ELEMENT(rv_ans, 4, out_MatProb);
 
-		if (!Rf_isNull(proc_ptr))
-			GPUExtProcPtr = (TypeGPUExtProc *)R_ExternalPtrAddr(proc_ptr);
 		try {
 			M.PredictHLA(INTEGER(GenoMat), nSamp, vote_method,
 				INTEGER(out_H1), INTEGER(out_H2), REAL(out_Prob),
@@ -1147,6 +1207,22 @@ SEXP HIBAG_Distance(SEXP NumHLA, SEXP Idx, SEXP Freq, SEXP HaploStr)
 }
 
 
+// whether compile the algorithm with specified targets or not
+extern const bool HIBAG_ALGORITHM_SSE2;
+extern const bool HIBAG_ALGORITHM_SSE2_POPCNT;
+extern const bool HIBAG_ALGORITHM_SSE4_2;
+extern const bool HIBAG_ALGORITHM_AVX;
+extern const bool HIBAG_ALGORITHM_AVX2;
+extern const bool HIBAG_ALGORITHM_AVX512F;
+extern const bool HIBAG_ALGORITHM_AVX512BW;
+
+static void target_add(string &s, const char *code, bool work)
+{
+	if (work)
+		s.append(" ").append(code);
+}
+
+
 /**
  *  Get the version and SSE information
 **/
@@ -1158,11 +1234,12 @@ SEXP HIBAG_Kernel_Version()
 	SET_ELEMENT(ans, 0, I);
 	INTEGER(I)[0] = HIBAG_KERNEL_VERSION >> 8;
 	INTEGER(I)[1] = HIBAG_KERNEL_VERSION & 0xFF;
+
 	// CPU information
-	SEXP info = NEW_CHARACTER(2);
+	SEXP info = NEW_CHARACTER(3);
 	SET_ELEMENT(ans, 1, info);
 	SET_STRING_ELT(info, 0, mkChar(CPU_Info()));
-	// compiler
+	// compiler information
 #ifdef __VERSION__
 	string version = __VERSION__;
 #else
@@ -1192,6 +1269,16 @@ SEXP HIBAG_Kernel_Version()
 			s = "Unknown compiler";
 	}
 	SET_STRING_ELT(info, 1, mkChar(s.c_str()));
+	// supported implementation
+	s = "Algorithm SIMD:";
+	target_add(s, "SSE2", HIBAG_ALGORITHM_SSE2);
+	target_add(s, "SSE4.2", HIBAG_ALGORITHM_SSE4_2);
+	target_add(s, "AVX", HIBAG_ALGORITHM_AVX);
+	target_add(s, "AVX2", HIBAG_ALGORITHM_AVX2);
+	target_add(s, "AVX512F", HIBAG_ALGORITHM_AVX512F);
+	target_add(s, "AVX512BW", HIBAG_ALGORITHM_AVX512BW);
+	SET_STRING_ELT(info, 2, mkChar(s.c_str()));
+
 	// using Intel TBB or not
 #if RCPP_PARALLEL_USE_TBB
 	int ntot = tbb::this_task_arena::max_concurrency();
