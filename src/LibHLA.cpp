@@ -2220,8 +2220,7 @@ void CAttrBag_Model::_PredictHLA(CAlg_Prediction &pred, const int geno[],
 		// initialize probability
 		pred.InitSumPostProb();
 		TGenotype Geno;
-		double sum_matching=0;
-		int num_matching=0;
+		double sum_matching=0, num_matching=0;
 
 		p = _ClassifierList.begin();
 		for (size_t w_i=0; p != _ClassifierList.end(); p++, w_i++)
@@ -2233,8 +2232,8 @@ void CAttrBag_Model::_PredictHLA(CAlg_Prediction &pred, const int geno[],
 			double pm;
 			pred.PredictPostProb(p->_Haplo, Geno, pm);
 			// add matching probability
-			sum_matching += pm;
-			num_matching ++;
+			sum_matching += pm * c_weight[w_i];
+			num_matching += c_weight[w_i];
 			// add prob to the ensemble
 			if (vote_method == 1)
 			{
@@ -2280,24 +2279,23 @@ void CAttrBag_Model::_Init_PredictHLA()
 		// prepare data structure for GPU
 		const size_t n_classifier = _ClassifierList.size();
 		THaplotype* haplo[n_classifier];
+		int p_n_haplo[n_classifier];
+		int p_n_snp[n_classifier];
 
 		gpu_geno_buf.resize(n_classifier);
-		gpu_num_haplo.resize(n_classifier*2);
-		int *pg = &gpu_num_haplo[0];
-
-		vector<CAttrBag_Classifier>::iterator p;
-		p = _ClassifierList.begin();
+		vector<CAttrBag_Classifier>::iterator p = _ClassifierList.begin();
 		for (size_t c_i=0; p != _ClassifierList.end(); p++, c_i++)
 		{
 			CHaplotypeList &hl = p->_Haplo;
 			hl.SetHaploAux_GPU();
 			haplo[c_i] = hl.List;
-			*pg++ = p->nHaplo();
-			*pg++ = p->nSNP();
+			p_n_haplo[c_i] = p->nHaplo();
+			p_n_snp[c_i] = p->nSNP();
 		}
 
+		// call the external function
 		(*GPUExtProcPtr->predict_init)(nHLA(), n_classifier, haplo,
-			&gpu_num_haplo[0]);
+			p_n_haplo, p_n_snp);
 	}
 }
 
