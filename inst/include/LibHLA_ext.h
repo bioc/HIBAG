@@ -188,8 +188,9 @@ namespace HLA_LIB
 	/// Kernel Version, Major Number (0x01) / Minor Number (0x05)
 	#define HIBAG_KERNEL_VERSION    0x0105
 
-	/// Define 8-bit and 64-bit integers
+	/// Define 8-bit, 32-bit and 64-bit integers
 	typedef uint8_t     UINT8;
+	typedef uint32_t    UINT32;
 	typedef int64_t     INT64;
 
 	/// The max number of SNP markers in an individual classifier.
@@ -199,6 +200,9 @@ namespace HLA_LIB
 	/// The max number of INT64 for packed SNP genotypes.
 	const size_t HIBAG_PACKED_INT64_MAXNUM =
 		HIBAG_MAXNUM_SNP_IN_CLASSIFIER / (8*sizeof(INT64));
+
+	/// The minimum rare frequency to store haplotypes
+	const double MIN_RARE_FREQ = 1e-5;
 
 
 	// ===================================================================== //
@@ -334,6 +338,9 @@ namespace HLA_LIB
 		void (*build_done)();
 		/// initialize bottstrapping
 		void (*build_set_bootstrap)(const int oob_cnt[]);
+		/// find the matched pairs of haplotypes for given genotypes
+		UINT32 *(*build_haplomatch)(const THaplotype haplo[],
+			const size_t nHaplo[], int n_snp, const TGenotype geno[], size_t &out_n);
 		/// initialize haplotypes and SNPs genotypes
 		void (*build_set_haplo_geno)(const THaplotype haplo[], int n_haplo,
 			const TGenotype geno[], int n_snp);

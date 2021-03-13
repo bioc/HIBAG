@@ -113,7 +113,7 @@ namespace HLA_LIB
 		size_t Num_SNP;
 		/// SNP haplotype list
 		THaplotype *List;
-		/// the number of SNP  haplotypes for each unique HLA allele
+		/// the number of SNP haplotypes for each unique HLA allele
 		std::vector<size_t> LenPerHLA;
 
 		/// the auxiliary haplotypes created in SetHaploAux()
@@ -280,29 +280,12 @@ namespace HLA_LIB
 	};
 
 
+	class CVariableSelection;
+
 	/// Expectation Maximization algorithm for estimating haplotype frequencies
 	class CAlg_EM
 	{
 	public:
-		/// constructor
-		CAlg_EM();
-
-		// call PrepareHaplotypes first, and then call PrepareNewSNP
-
-		/// prepare a new haplotype list
-		void PrepareHaplotypes(const CHaplotypeList &CurHaplo,
-			const CGenotypeList &GenoList, const CHLATypeList &HLAList,
-			CHaplotypeList &NextHaplo);
-
-		/// , return true if the new SNP is not monomorphic
-		bool PrepareNewSNP(const int NewSNP, const CHaplotypeList &CurHaplo,
-			const CSNPGenoMatrix &SNPMat, CGenotypeList &GenoList,
-			CHaplotypeList &NextHaplo);
-
-		/// call EM algorithm to estimate haplotype frequencies
-		void ExpectationMaximization(CHaplotypeList &NextHaplo);
-
-	protected:
 		/// A pair of haplotypes
 		struct THaploPair
 		{
@@ -313,6 +296,16 @@ namespace HLA_LIB
 
 			THaploPair() { Flag = true; H1 = H2 = NULL; }
 			THaploPair(THaplotype *i1, THaplotype *i2) { Flag = true; H1 = i1; H2 = i2; }
+
+			static bool Less(const THaploPair &L, const THaploPair &R)
+			{
+				if (L.H1 < R.H1)
+					return true;
+				else if (L.H1 == R.H1)
+					return (L.H2 < R.H2);
+				else
+					return false;
+			}
 		};
 
 		/// A list of haplotype pairs
@@ -323,8 +316,30 @@ namespace HLA_LIB
 			std::vector<THaploPair> PairList;  //< a list of haplotype pairs
 		};
 
+		/// constructor
+		CAlg_EM(CVariableSelection &v);
+
+		// call PrepareHaplotypes first, and then call PrepareNewSNP
+
+		/// prepare a new haplotype list
+		void PrepareHaplotypes(const CHaplotypeList &CurHaplo,
+			const CGenotypeList &GenoList, CHaplotypeList &NextHaplo);
+
+		/// , return true if the new SNP is not monomorphic
+		bool PrepareNewSNP(const int NewSNP, const CHaplotypeList &CurHaplo,
+			const CSNPGenoMatrix &SNPMat, CGenotypeList &GenoList,
+			CHaplotypeList &NextHaplo);
+
+		/// call EM algorithm to estimate haplotype frequencies
+		void ExpectationMaximization(CHaplotypeList &NextHaplo);
+
+	protected:
+		/// selection
+		CVariableSelection &vs;
 		/// pairs of haplotypes for individuals
 		std::vector<THaploPairList> _SampHaploPair;
+		/// LogLik buffer
+		std::vector<double> log_buf;
 	};
 
 
@@ -336,6 +351,9 @@ namespace HLA_LIB
 		friend class CAttrBag_Model;
 
 		// define target-specific functions
+		typedef void (*F_PrepHaploMatch)(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		typedef THLAType (*F_BestGuess)(const CHaplotypeList &, const TGenotype &);
 		typedef double (*F_PostProb)(const CHaplotypeList &, const TGenotype &, const THLAType &);
 		typedef double (*F_PostProb2)(const CHaplotypeList &, const TGenotype &, double[]);
@@ -394,38 +412,60 @@ namespace HLA_LIB
 		/// the best-guess HLA type from 'hla_prob'
 		inline THLAType _BestGuess(double hla_prob[]);
 
+		/// call in CAlg_EM::PrepareHaplotypes()
+		static void _PrepHaploMatch_def(const TGenotype &pG,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		/// the best-guess HLA type based on SNP profiles and haplotype list
-		//    without saving posterior probabilities
+		///   without saving posterior probabilities
 		static THLAType _BestGuess_def(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		/// the prob of the given HLA type based on SNP profiles and haplotype
-		//    list without saving posterior probabilities
+		///   list without saving posterior probabilities
 		static double _PostProb_def(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		/// predict based on SNP profiles and haplotype list, and save posterior
-		//    probabilities in 'Prob', used in PredictPostProb
+		///   probabilities in 'Prob', used in PredictPostProb
 		static double _PostProb2_def(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
 
 	#ifdef HIBAG_CPU_ARCH_X86
 		// SSE2 CPU flags
+		static void _PrepHaploMatch_sse2(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		static THLAType _BestGuess_sse2(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		static double _PostProb_sse2(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		static double _PostProb2_sse2(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
 		// SSE4.2 CPU flags
+		static void _PrepHaploMatch_sse4_2(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		static THLAType _BestGuess_sse4_2(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		static double _PostProb_sse4_2(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		static double _PostProb2_sse4_2(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
 		// AVX CPU flags
+		static void _PrepHaploMatch_avx(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		static THLAType _BestGuess_avx(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		static double _PostProb_avx(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		static double _PostProb2_avx(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
 		// AVX2 CPU flags
+		static void _PrepHaploMatch_avx2(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		static THLAType _BestGuess_avx2(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		static double _PostProb_avx2(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		static double _PostProb2_avx2(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
 		// AVX512F CPU flags
+		static void _PrepHaploMatch_avx512f(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		static THLAType _BestGuess_avx512f(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		static double _PostProb_avx512f(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		static double _PostProb2_avx512f(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
 		// AVX512BW CPU flags
+		static void _PrepHaploMatch_avx512bw(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		static THLAType _BestGuess_avx512bw(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		static double _PostProb_avx512bw(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		static double _PostProb2_avx512bw(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
@@ -437,6 +477,8 @@ namespace HLA_LIB
 	class CVariableSelection
 	{
 	public:
+		friend class CAlg_EM;
+
 		/// constructor
 		CVariableSelection();
 
@@ -504,7 +546,7 @@ namespace HLA_LIB
 		CAttrBag_Classifier(CAttrBag_Model &_owner);
 
 		/// initialize the bootstrap sample
-		void InitBootstrapCount(int SampCnt[]);
+		void InitBootstrapCount(const int SampCnt[]);
 		/// assign the haplotype frequencies
 		void Assign(int n_snp, const int snpidx[], const int samp_num[],
 			int n_haplo, const double *freq, const int *hla,
