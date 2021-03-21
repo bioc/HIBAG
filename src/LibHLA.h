@@ -1,7 +1,7 @@
 // ===============================================================
 //
 // HIBAG R package (HLA Genotype Imputation with Attribute Bagging)
-// Copyright (C) 2011-2020   Xiuwen Zheng (zhengx@u.washington.edu)
+// Copyright (C) 2011-2021   Xiuwen Zheng (zhengx@u.washington.edu)
 // All rights reserved.
 //
 // This program is free software: you can redistribute it and/or modify
@@ -29,43 +29,19 @@
 #define LIBHLA_H_
 
 #include "LibHLA_ext.h"
-#include <stdint.h>
-#include <cstdlib>
 #include <cstring>
 #include <cstdarg>
 #include <ctime>
 #include <cmath>
 #include <vector>
 #include <list>
-#include <string>
 #include <algorithm>
 
 
 namespace HLA_LIB
 {
-	using namespace std;
-
-	/// Kernel Version, Major Number (0x01) / Minor Number (0x05)
-	#define HIBAG_KERNEL_VERSION    0x0105
-
-	/// Define 8-bit and 64-bit integers
-	typedef uint8_t     UINT8;
-	typedef int64_t     INT64;
-
-	/// The max number of SNP markers in an individual classifier.
-	//  Don't modify this value since the code is optimized for this value!!!
-	const size_t HIBAG_MAXNUM_SNP_IN_CLASSIFIER = 128;
-
-	/// The max number of INT64 for packed SNP genotypes.
-	const size_t HIBAG_PACKED_INT64_MAXNUM =
-		HIBAG_MAXNUM_SNP_IN_CLASSIFIER / (8*sizeof(INT64));
-
-
-	// ===================================================================== //
-
 	/// macro for checking error
 	#define HIBAG_CHECKING(x, msg)	{ if (x) throw ErrHLA(msg); }
-
 
 
 	// ===================================================================== //
@@ -95,44 +71,14 @@ namespace HLA_LIB
 	// ========                                                     ========
 	// ===================================================================== //
 
-	/// Packed bi-allelic SNP haplotype structure: 8 alleles in a byte
-	struct THaplotype
-	{
-	public:
-		friend class CHaplotypeList;
+	// Packed bi-allelic SNP haplotype structure: 8 alleles in a byte
+	// struct THaplotype, defined LibHLA_ext.h
 
-		/// packed SNP alleles
-		INT64 PackedHaplo[HIBAG_PACKED_INT64_MAXNUM];
-		/// haplotype frequency
-		double Freq;
-		/// auxiliary variables, sizeof(THaplotype)=32
-		union type_aux
-		{
-			double OldFreq;  /// old haplotype frequency
-			struct type_aux2 {
-				float Freq_f32;  /// 32-bit haplotype frequency
-				int HLA_allele;  /// the associated HLA allele
-			} a2;
-		} aux;
+	// An unordered pair of HLA alleles
+	// struct THLAType, defined LibHLA_ext.h
 
-		/// constructor
-		THaplotype();
-		THaplotype(double _freq);
-		THaplotype(const char *str, double _freq);
-
-		/// get SNP allele, idx starts from ZERO
-		UINT8 GetAllele(size_t idx) const;
-		/// set SNP allele, idx starts from ZERO
-		void SetAllele(size_t idx, UINT8 val);
-		/// get a string of "0" and "1" from packed SNP alleles
-		string HaploToStr(size_t Length) const;
-		/// set packed SNP alleles from a string of "0" and "1"
-		void StrToHaplo(const string &str);
-
-	private:
-		/// set SNP allele, idx starts from ZERO, without checking
-		inline void _SetAllele(size_t idx, UINT8 val);
-	};
+	// Packed bi-allelic SNP genotype structure: 8 SNPs in a byte
+	// struct TGenotype, defined LibHLA_ext.h
 
 
 	/// Haplotype list with an HLA gene and SNP alleles
@@ -167,8 +113,8 @@ namespace HLA_LIB
 		size_t Num_SNP;
 		/// SNP haplotype list
 		THaplotype *List;
-		/// the number of SNP  haplotypes for each unique HLA allele
-		vector<size_t> LenPerHLA;
+		/// the number of SNP haplotypes for each unique HLA allele
+		std::vector<size_t> LenPerHLA;
 
 		/// the auxiliary haplotypes created in SetHaploAux()
 		int64_t *aux_haplo;
@@ -191,57 +137,6 @@ namespace HLA_LIB
 
 		/// allocate 32-aligned memory internally
 		inline void alloc_mem(size_t num);
-	};
-
-
-	/// A pair of HLA alleles
-	struct THLAType
-	{
-		int Allele1;  //< the first HLA allele
-		int Allele2;  //< the second HLA allele
-	};
-
-
-	/// Packed bi-allelic SNP genotype structure: 8 SNPs in a byte
-	struct TGenotype
-	{
-	public:
-		friend class CGenotypeList;
-		friend class CAlg_EM;
-		friend class CAlg_Prediction;
-
-		/// packed SNP genotypes, allele 1
-		INT64 PackedSNP1[HIBAG_PACKED_INT64_MAXNUM];
-		/// packed SNP genotypes, allele 2
-		INT64 PackedSNP2[HIBAG_PACKED_INT64_MAXNUM];
-		/// the count in the bootstrapped data
-		int BootstrapCount;
-
-		/// auxiliary correct HLA type
-		THLAType aux_hla_type;
-		/// auxiliary integer to make sizeof(TGenotype)=64
-		int aux_temp;
-
-		/// constructor
-		TGenotype();
-		/// get SNP genotype (0, 1, 2) at the specified locus, idx starts from ZERO
-		int GetSNP(size_t idx) const;
-		/// set SNP genotype (0, 1, 2) at the specified locus, idx starts from ZERO
-		void SetSNP(size_t idx, int val);
-		/// get a string of SNP genotypes, consisting of "0" or "1"
-		string SNPToString(size_t Length) const;
-		/// set SNP genotypes by a string of "0" and "1"
-		void StringToSNP(const string &str);
-		/// export SNPs to a vector of integers
-		void SNPToInt(size_t Length, int OutArray[]) const;
-		/// import SNPs from an integer vector 'GenoBase' with 'Index'
-		void IntToSNP(size_t Length, const int GenoBase[], const int Index[]);
-		/// compute the Hamming distance between SNPs and H1+H2
-		int HammingDistance(size_t Length, const THaplotype &H1, const THaplotype &H2) const;
-
-	protected:
-		/// set SNP genotype (0, 1, 2) without checking
-		void _SetSNP(size_t idx, int val);
 	};
 
 
@@ -285,7 +180,7 @@ namespace HLA_LIB
 		inline int nSamp() const { return List.size(); }
 
 		/// genotype list
-		vector<TGenotype> List;
+		std::vector<TGenotype> List;
 		/// the number of SNPs
 		size_t Num_SNP;
 	};
@@ -305,9 +200,9 @@ namespace HLA_LIB
 		static int Compare(const THLAType &H1, const THLAType &H2);
 
 		/// a list of HLA types
-		vector<THLAType> List;
+		std::vector<THLAType> List;
 		/// HLA alleles
-		vector<string> Str_HLA_Allele;
+		std::vector<std::string> Str_HLA_Allele;
 	};
 
 
@@ -328,7 +223,7 @@ namespace HLA_LIB
 	#define ADD_FREQ_MUTANT(ans, p, cnt)  ans += ((p) * EXP_LOG_MIN_RARE_FREQ[cnt])
 
 	/// Frequency with mutants and errors
-	extern double EXP_LOG_MIN_RARE_FREQ[HIBAG_MAXNUM_SNP_IN_CLASSIFIER*2];
+	extern double EXP_LOG_MIN_RARE_FREQ[HIBAG_MAXNUM_SNP_IN_CLASSIFIER*2 + 1];
 
 
 	/// variable sampling
@@ -379,35 +274,18 @@ namespace HLA_LIB
 
 	protected:
 		/// saving the SNP indices
-		vector<int> _IdxArray;
+		std::vector<int> _IdxArray;
 		/// the number of selected SNPs
 		int _m_try;
 	};
 
 
+	class CVariableSelection;
+
 	/// Expectation Maximization algorithm for estimating haplotype frequencies
 	class CAlg_EM
 	{
 	public:
-		/// constructor
-		CAlg_EM();
-
-		// call PrepareHaplotypes first, and then call PrepareNewSNP
-
-		/// prepare a new haplotype list
-		void PrepareHaplotypes(const CHaplotypeList &CurHaplo,
-			const CGenotypeList &GenoList, const CHLATypeList &HLAList,
-			CHaplotypeList &NextHaplo);
-
-		/// , return true if the new SNP is not monomorphic
-		bool PrepareNewSNP(const int NewSNP, const CHaplotypeList &CurHaplo,
-			const CSNPGenoMatrix &SNPMat, CGenotypeList &GenoList,
-			CHaplotypeList &NextHaplo);
-
-		/// call EM algorithm to estimate haplotype frequencies
-		void ExpectationMaximization(CHaplotypeList &NextHaplo);
-
-	protected:
 		/// A pair of haplotypes
 		struct THaploPair
 		{
@@ -418,18 +296,50 @@ namespace HLA_LIB
 
 			THaploPair() { Flag = true; H1 = H2 = NULL; }
 			THaploPair(THaplotype *i1, THaplotype *i2) { Flag = true; H1 = i1; H2 = i2; }
+
+			static bool Less(const THaploPair &L, const THaploPair &R)
+			{
+				if (L.H1 < R.H1)
+					return true;
+				else if (L.H1 == R.H1)
+					return (L.H2 < R.H2);
+				else
+					return false;
+			}
 		};
 
 		/// A list of haplotype pairs
 		struct THaploPairList
 		{
-			int BootstrapCount;           //< the count in the bootstrapped data
-			int SampIndex;                //< the sample index in the source data
-			vector<THaploPair> PairList;  //< a list of haplotype pairs
+			int BootstrapCount;  //< the count in the bootstrapped data
+			int SampIndex;       //< the sample index in the source data
+			std::vector<THaploPair> PairList;  //< a list of haplotype pairs
 		};
 
+		/// constructor
+		CAlg_EM(CVariableSelection &v);
+
+		// call PrepareHaplotypes first, and then call PrepareNewSNP
+
+		/// prepare a new haplotype list
+		void PrepareHaplotypes(const CHaplotypeList &CurHaplo,
+			const CGenotypeList &GenoList, CHaplotypeList &NextHaplo);
+
+		/// , return true if the new SNP is not monomorphic
+		bool PrepareNewSNP(const int NewSNP, const CHaplotypeList &CurHaplo,
+			const CSNPGenoMatrix &SNPMat, CGenotypeList &GenoList,
+			CHaplotypeList &NextHaplo);
+
+		/// call EM algorithm to estimate haplotype frequencies
+		void ExpectationMaximization(CHaplotypeList &NextHaplo);
+
+	protected:
+		/// selection
+		CVariableSelection &vs;
 		/// pairs of haplotypes for individuals
-		vector<THaploPairList> _SampHaploPair;
+		std::vector<THaploPairList> _SampHaploPair;
+		/// LogLik buffer
+		std::vector<double> log_buf;
 	};
 
 
@@ -441,6 +351,9 @@ namespace HLA_LIB
 		friend class CAttrBag_Model;
 
 		// define target-specific functions
+		typedef void (*F_PrepHaploMatch)(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		typedef THLAType (*F_BestGuess)(const CHaplotypeList &, const TGenotype &);
 		typedef double (*F_PostProb)(const CHaplotypeList &, const TGenotype &, const THLAType &);
 		typedef double (*F_PostProb2)(const CHaplotypeList &, const TGenotype &, double[]);
@@ -481,9 +394,9 @@ namespace HLA_LIB
 		/// get the number of unique HLA alleles
 		inline int nHLA() const { return _nHLA; }
 		/// the posterior probabilities for the current classifier
-		inline const vector<double> &PostProb() const { return _PostProb; }
+		inline const std::vector<double> &PostProb() const { return _PostProb; }
 		/// the average posterior probabilities for all classifiers
-		inline const vector<double> &SumPostProb() const { return _SumPostProb; }
+		inline const std::vector<double> &SumPostProb() const { return _SumPostProb; }
 
 	protected:
 		/// the number of unique HLA alleles
@@ -491,46 +404,68 @@ namespace HLA_LIB
 		/// add weight after calling AddProbToSum()
 		double _Sum_Weight;
 		/// a vector of posterior probabilities
-		vector<double> _PostProb;
+		std::vector<double> _PostProb;
 		/// a vector of posterior probabilities for summing up
-		vector<double> _SumPostProb;
+		std::vector<double> _SumPostProb;
 
 	private:
 		/// the best-guess HLA type from 'hla_prob'
 		inline THLAType _BestGuess(double hla_prob[]);
 
+		/// call in CAlg_EM::PrepareHaplotypes()
+		static void _PrepHaploMatch_def(const TGenotype &pG,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		/// the best-guess HLA type based on SNP profiles and haplotype list
-		//    without saving posterior probabilities
+		///   without saving posterior probabilities
 		static THLAType _BestGuess_def(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		/// the prob of the given HLA type based on SNP profiles and haplotype
-		//    list without saving posterior probabilities
+		///   list without saving posterior probabilities
 		static double _PostProb_def(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		/// predict based on SNP profiles and haplotype list, and save posterior
-		//    probabilities in 'Prob', used in PredictPostProb
+		///   probabilities in 'Prob', used in PredictPostProb
 		static double _PostProb2_def(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
 
 	#ifdef HIBAG_CPU_ARCH_X86
 		// SSE2 CPU flags
+		static void _PrepHaploMatch_sse2(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		static THLAType _BestGuess_sse2(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		static double _PostProb_sse2(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		static double _PostProb2_sse2(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
 		// SSE4.2 CPU flags
+		static void _PrepHaploMatch_sse4_2(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		static THLAType _BestGuess_sse4_2(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		static double _PostProb_sse4_2(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		static double _PostProb2_sse4_2(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
 		// AVX CPU flags
+		static void _PrepHaploMatch_avx(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		static THLAType _BestGuess_avx(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		static double _PostProb_avx(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		static double _PostProb2_avx(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
 		// AVX2 CPU flags
+		static void _PrepHaploMatch_avx2(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		static THLAType _BestGuess_avx2(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		static double _PostProb_avx2(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		static double _PostProb2_avx2(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
 		// AVX512F CPU flags
+		static void _PrepHaploMatch_avx512f(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		static THLAType _BestGuess_avx512f(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		static double _PostProb_avx512f(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		static double _PostProb2_avx512f(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
 		// AVX512BW CPU flags
+		static void _PrepHaploMatch_avx512bw(const TGenotype &Geno,
+			THaplotype *pH1_st, size_t pH1_n, THaplotype *pH2_st, size_t pH2_n,
+			size_t Num_SNP, std::vector<CAlg_EM::THaploPair> &HP_PairList, short DiffList[]);
 		static THLAType _BestGuess_avx512bw(const CHaplotypeList &Haplo, const TGenotype &Geno);
 		static double _PostProb_avx512bw(const CHaplotypeList &Haplo, const TGenotype &Geno, const THLAType &HLA);
 		static double _PostProb2_avx512bw(const CHaplotypeList &Haplo, const TGenotype &Geno, double Prob[]);
@@ -542,6 +477,8 @@ namespace HLA_LIB
 	class CVariableSelection
 	{
 	public:
+		friend class CAlg_EM;
+
 		/// constructor
 		CVariableSelection();
 
@@ -550,7 +487,7 @@ namespace HLA_LIB
 			const int _BootstrapCnt[]);
 		/// searching algorithm
 		void Search(CBaseSampling &VarSampling, CHaplotypeList &OutHaplo,
-			vector<int> &OutSNPIndex, double &Out_Global_Max_OutOfBagAcc,
+			std::vector<int> &OutSNPIndex, double &Out_Global_Max_OutOfBagAcc,
 			int mtry, bool prune, bool verbose, bool verbose_detail);
 
 		/// the number of samples
@@ -573,11 +510,11 @@ namespace HLA_LIB
 		CAlg_Prediction _Predict;
 
 		/// auxiliary
-		vector<int> idx_inbag;      //< indices for in-bag samples
-		vector<int> idx_outbag;     //< indices for out-of-bag samples
-		vector<double> log_inbag;   //< LogLik of in-bag samples for multi-threading to avoid rounding error of addition
-		vector<int64_t> aux_haplo;  //< packed haplotype data for AVX, AVX2, AVX512F
-		vector<double> aux_freq;    //< packed haplotype frequencies for AVX, AVX2, AVX512F
+		std::vector<int> idx_inbag;      //< indices for in-bag samples
+		std::vector<int> idx_outbag;     //< indices for out-of-bag samples
+		std::vector<double> log_inbag;   //< LogLik of in-bag samples for multi-threading to avoid rounding error of addition
+		std::vector<int64_t> aux_haplo;  //< packed haplotype data for AVX, AVX2, AVX512F
+		std::vector<double> aux_freq;    //< packed haplotype frequencies for AVX, AVX2, AVX512F
 
 		/// initialize the haplotype list
 		void _InitHaplotype(CHaplotypeList &Haplo);
@@ -609,7 +546,7 @@ namespace HLA_LIB
 		CAttrBag_Classifier(CAttrBag_Model &_owner);
 
 		/// initialize the bootstrap sample
-		void InitBootstrapCount(int SampCnt[]);
+		void InitBootstrapCount(const int SampCnt[]);
 		/// assign the haplotype frequencies
 		void Assign(int n_snp, const int snpidx[], const int samp_num[],
 			int n_haplo, const double *freq, const int *hla,
@@ -627,9 +564,9 @@ namespace HLA_LIB
 		/// the out-of-bag accuracy
 		inline double OutOfBag_Accuracy() const { return _OutOfBag_Accuracy; }
 		/// the SNP selection
-		inline const vector<int> &SNPIndex() const { return _SNPIndex; }
+		inline const std::vector<int> &SNPIndex() const { return _SNPIndex; }
 		/// the bootstrapped individuals
-		inline const vector<int> &BootstrapCount() const { return _BootstrapCount; }
+		inline const std::vector<int> &BootstrapCount() const { return _BootstrapCount; }
 		/// the haplotype list
 		inline const CHaplotypeList &Haplotype() const { return _Haplo; }
 
@@ -639,9 +576,9 @@ namespace HLA_LIB
 		/// the haplotype list
 		CHaplotypeList _Haplo;
 		/// the bootstrapped individuals
-		vector<int> _BootstrapCount;
+		std::vector<int> _BootstrapCount;
 		/// the SNP selection
-		vector<int> _SNPIndex;
+		std::vector<int> _SNPIndex;
 		/// the out-of-bag accuracy
 		double _OutOfBag_Accuracy;
 	};
@@ -685,6 +622,9 @@ namespace HLA_LIB
 			int OutH1[], int OutH2[], double OutMaxProb[],
 			double OutMatching[], double OutProbArray[], bool verbose);
 
+		// remove all individual classifiers in the model
+		void ClearClassifierList() { _ClassifierList.clear(); }
+
 		/// the number of samples
 		inline int nSamp() const { return _SNPMat.Num_Total_Samp; }
 		/// the number of SNPs
@@ -696,7 +636,7 @@ namespace HLA_LIB
 		inline const CHLATypeList &HLAList() const
 			{ return _HLAList; }
 		/// a list of individual classifiers
-		inline const vector<CAttrBag_Classifier> &ClassifierList() const
+		inline const std::vector<CAttrBag_Classifier> &ClassifierList() const
 			{ return _ClassifierList; }
 
 	protected:
@@ -705,7 +645,7 @@ namespace HLA_LIB
 		/// a list of HLA alleles
 		CHLATypeList _HLAList;
 		/// a list of individual classifiers
-		vector<CAttrBag_Classifier> _ClassifierList;
+		std::vector<CAttrBag_Classifier> _ClassifierList;
 		/// variable selection algorithm
 		CVariableSelection _VarSelect;
 
@@ -720,8 +660,7 @@ namespace HLA_LIB
 		void _Done_PredictHLA();
 
 	private:
-		vector<TGenotype> gpu_geno_buf;
-		vector<int> gpu_num_haplo;
+		std::vector<TGenotype> gpu_geno_buf;
 	};
 
 
@@ -795,36 +734,6 @@ namespace HLA_LIB
 
 
 	// ===================================================================== //
-
-	/// the data structure of functions using GPU
-	struct TypeGPUExtProc
-	{
-		/// initialize the internal structure for building a model
-		void (*build_init)(int nHLA, int nSample);
-		/// finalize the structure for building a model
-		void (*build_done)();
-		/// initialize bottstrapping
-		void (*build_set_bootstrap)(const int oob_cnt[]);
-		/// initialize haplotypes and SNPs genotypes
-		void (*build_set_haplo_geno)(const THaplotype haplo[], int n_haplo,
-			const TGenotype geno[], int n_snp);
-		/// calculate the out-of-bag accuracy (the number of correct alleles)
-		int (*build_acc_oob)();
-		/// calculate the in-bag log likelihood
-		double (*build_acc_ib)();
-
-		/// initialize the internal structure for predicting
-		//    nHaplo[2*nClassifier]:
-		//    nHaplo[0] -- total # of haplotypes
-		//    nHaplo[1] -- # of SNPs
-		void (*predict_init)(int nHLA, int nClassifier,
-			const THaplotype *const pHaplo[], const int nHaplo[]);
-		/// finalize the structure for predicting
-		void (*predict_done)();
-		/// average the posterior probabilities among classifiers for predicting
-		void (*predict_avg_prob)(const TGenotype geno[], const double weight[],
-			double out_prob[], double out_match[]);
-	};
 
 	/// Get a string of date
 	const char *date_text();

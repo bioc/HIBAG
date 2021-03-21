@@ -260,8 +260,8 @@ hlaAttrBagging <- function(hla, snp, nclassifier=100L,
 .show_model_obj <- function(mobj, autosave)
 {
     z <- summary(mobj, show=FALSE)
-    cat(ifelse(autosave, "[Saved]", " --"),
-        paste0("#", length(mobj$classifier), ","), " avg OOB acc:",
+    cat(ifelse(autosave, "==Saved==", " --"),
+        paste0("#", length(mobj$classifier), ","), "avg oob acc:",
         sprintf("%0.2f%%, sd: %0.2f%%, min: %0.2f%%, max: %0.2f%%\n",
         z$info["accuracy", "Mean"], z$info["accuracy", "SD"],
         z$info["accuracy", "Min"], z$info["accuracy", "Max"]))
@@ -311,14 +311,13 @@ hlaParallelAttrBagging <- function(cl, hla, snp, auto.save="",
             cat("[-] ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n", sep="")
         # set random number for the cluster
         RNGkind("L'Ecuyer-CMRG")
-        rand <- eval(parse(text=".Random.seed"))
+        rand <- .Random.seed
         parallel::clusterSetRNGStream(cl)
 
         total <- 0L
         ans <- .DynamicClusterCall(cl,
             fun = function(job, hla, snp, mtry, prune, na.rm, mono.rm)
             {
-                eval(parse(text="library(HIBAG)"))
                 model <- hlaAttrBagging(hla=hla, snp=snp, nclassifier=-1L,
                     mtry=mtry, prune=prune, na.rm=na.rm, mono.rm=mono.rm,
                     verbose=FALSE, verbose.detail=FALSE)
@@ -347,7 +346,7 @@ hlaParallelAttrBagging <- function(cl, hla, snp, auto.save="",
                     z <- summary(obj, show=FALSE)
                     total <<- total + 1L
                     cat(sprintf(
-                        "[%d] %s, job%3d, # of SNPs: %g, # of haplo: %g, acc: %0.1f%%\n",
+                        "[%d] %s, worker%3d, # of SNPs: %g, # of haplo: %g, oob acc: %0.1f%%\n",
                         total, format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
                         as.integer(job), z$info["num.snp", "Mean"],
                         z$info["num.haplo", "Mean"],
@@ -364,7 +363,7 @@ hlaParallelAttrBagging <- function(cl, hla, snp, auto.save="",
         parallel::nextRNGSubStream(rand)
         if (stop.cluster) cl <- NULL
         if (auto.save != "")
-            ans <- get(load(auto.save))
+            ans <- .fn_obj_load(auto.save)
         mod <- hlaModelFromObj(ans)
 
     } else {
@@ -699,8 +698,7 @@ hlaPredict <- function(object, snp, cl=FALSE,
         if (is.na(nthread) || nthread<1L) nthread <- 1L
 
         # pointer to functions for an extensible component
-        pm <- list()
-        pm <- pm$proc_ptr
+        pm <- attr(cl, "proc_ptr")
 
         # predict HLA genotypes
         if (type %in% c("response", "response+prob"))
@@ -746,7 +744,7 @@ hlaPredict <- function(object, snp, cl=FALSE,
             m <- outer(object$hla.allele, object$hla.allele,
                 function(x, y) paste(x, y, sep="/"))
             rownames(res) <- m[lower.tri(m, diag=TRUE)]
-            NA.cnt <- sum(colSums(res) <= 0L)
+            NA.cnt <- sum(colSums(res) <= 0L, na.rm=TRUE)
         }
     } else {
 
@@ -788,7 +786,7 @@ hlaPredict <- function(object, snp, cl=FALSE,
                     res <- cbind(res, rv[[i]])
             }
             colnames(res) <- geno.sampid
-            NA.cnt <- sum(colSums(res) <= 0L)
+            NA.cnt <- sum(colSums(res) <= 0L, na.rm=TRUE)
         }
     } 
 
@@ -953,24 +951,10 @@ hlaModelToObj <- function(model)
     # check
     stopifnot(inherits(model, "hlaAttrBagClass"))
 
-    # get the number of classifiers
-    CNum <- .Call(HIBAG_GetNumClassifiers, model$model)
+    # get a list of classifiers
+    clr <- .Call(HIBAG_GetClassifierList, model$model, model$hla.allele)
 
-    # for each tree
-    res <- vector("list", CNum)
-    for (i in seq_len(CNum))
-    {
-        # get freq. and haplotypes, etc
-        v <- .Call(HIBAG_Classifier_GetHaplos, model$model, i)
-        names(v) <- c("freq", "hla", "haplo", "snpidx", "samp.num", "acc")
-        res[[i]] <- list(
-            samp.num = v$samp.num,
-            haplos = data.frame(freq = v$freq, hla = model$hla.allele[v$hla],
-                haplo = v$haplo, stringsAsFactors=FALSE),
-            snpidx = v$snpidx,
-            outofbag.acc = v$acc)
-    }
-
+    # output
     rv <- list(n.samp = model$n.samp, n.snp = model$n.snp,
         sample.id = model$sample.id, snp.id = model$snp.id,
         snp.position = model$snp.position, snp.allele = model$snp.allele,
@@ -978,7 +962,7 @@ hlaModelToObj <- function(model)
         hla.locus = model$hla.locus,
         hla.allele = model$hla.allele, hla.freq = model$hla.freq,
         assembly = model$assembly,
-        classifiers = res,
+        classifiers = clr,
         matching = model$matching,
         appendix = model$appendix)
     class(rv) <- "hlaAttrBagObj"
@@ -1609,5 +1593,16 @@ hlaSetKernelTarget <- function(cpu=c("max", "auto.avx2", "base",
         info[[2L]][1L]))
     if (is.na(info[[3L]]))
         packageStartupMessage("No Intel Threading Building Blocks (TBB)")
+    TRUE
+}
+
+.hibag_data_list <- list(
+	data.frame = "data.frame",
+	clr_nm = c("samp.num", "haplos", "snpidx", "outofbag.acc"),
+	clr_haplo_nm = c("freq", "hla", "haplo"))
+
+.onLoad <- function(lib, pkg)
+{
+    .Call(HIBAG_Init, .hibag_data_list)
     TRUE
 }
