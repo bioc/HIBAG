@@ -2188,12 +2188,22 @@ CAttrBag_Classifier *CAttrBag_Model::NewClassifierAllSamp()
 	return I;
 }
 
+CAttrBag_Model::try_final_train_gpu::try_final_train_gpu(CAttrBag_Model *m)
+{
+	if (GPUExtProcPtr && *GPUExtProcPtr->build_init)
+		(*GPUExtProcPtr->build_init)(m->nHLA(), m->nSamp());
+}
+
+CAttrBag_Model::try_final_train_gpu::~try_final_train_gpu()
+{
+	if (GPUExtProcPtr && *GPUExtProcPtr->build_done)
+		(*GPUExtProcPtr->build_done)();
+}
+
 void CAttrBag_Model::BuildClassifiers(int nclassifier, int mtry, bool prune,
 	bool verbose, bool verbose_detail)
 {
-	if (GPUExtProcPtr && *GPUExtProcPtr->build_init)
-		(*GPUExtProcPtr->build_init)(nHLA(), nSamp());
-
+	try_final_train_gpu gpu(this);
 	CSamplingWithoutReplace VarSampling;
 
 	for (int k=0; k < nclassifier; k++)
@@ -2227,14 +2237,21 @@ void CAttrBag_Model::BuildClassifiers(int nclassifier, int mtry, bool prune,
 			CheckInterrupt();
 		}
 	}
+}
 
-	if (GPUExtProcPtr && *GPUExtProcPtr->build_done)
-		(*GPUExtProcPtr->build_done)();
+CAttrBag_Model::try_final_pred_gpu::try_final_pred_gpu(CAttrBag_Model *m)
+{
+	(owner = m)->_Init_GPU_PredHLA();
+}
+
+CAttrBag_Model::try_final_pred_gpu::~try_final_pred_gpu()
+{
+	owner->_Done_GPU_PredHLA();
 }
 
 void CAttrBag_Model::PredictHLA(const int *genomat, int n_samp, int vote_method,
 	int OutH1[], int OutH2[], double OutMaxProb[], double OutMatching[],
-	double OutProbArray[], bool verbose)
+	double OutDosage[], double OutProbArray[], bool verbose)
 {
 	if ((vote_method < 1) || (vote_method > 2))
 		throw ErrHLA("Invalid 'vote_method'.");
@@ -2276,33 +2293,57 @@ void CAttrBag_Model::PredictHLA(const int *genomat, int n_samp, int vote_method,
 	Progress.Info = "Predicting";
 	Progress.Init(n_samp, verbose);
 
-	_Init_PredictHLA();
+	try_final_pred_gpu gpu(this);
 	PARALLEL_FOR(i, n_samp)
 	{
-		const int idx = thread_idx();
-		CAlg_Prediction &pred = pred_lst[idx];
+		const int th_idx = thread_idx();
+		CAlg_Prediction &pred = pred_lst[th_idx];
 		double match_prob;
 		_PredictHLA(pred, genomat + i*nSNP(), &snp_weight[0], vote_method,
-			match_prob, &c_weight[idx*_ClassifierList.size()]);
+			match_prob, &c_weight[th_idx*_ClassifierList.size()]);
 
 		THLAType HLA = pred.BestGuessEnsemble();
-		OutH1[i] = HLA.Allele1;
-		OutH2[i] = HLA.Allele2;
-
-		if ((HLA.Allele1 != NA_INTEGER) && (HLA.Allele2 != NA_INTEGER))
-			OutMaxProb[i] = pred.IndexSumPostProb(HLA.Allele1, HLA.Allele2);
-		else
-			OutMaxProb[i] = 0;
-
-		if (OutProbArray)
+		if (OutH1 && OutH2)
+		{
+			OutH1[i] = HLA.Allele1;
+			OutH2[i] = HLA.Allele2;
+		}
+		if (OutMaxProb)
+		{
+			if ((HLA.Allele1 != NA_INTEGER) && (HLA.Allele2 != NA_INTEGER))
+				OutMaxProb[i] = pred.IndexSumPostProb(HLA.Allele1, HLA.Allele2);
+			else
+				OutMaxProb[i] = 0;
+		}
+		if (OutMatching)  // matching proportion
+		{
+			OutMatching[i] = match_prob;
+		}
+		if (OutDosage)  // dosages
+		{
+			const size_t n = nHLA();
+			const double *s = &pred._SumPostProb[0];
+			double *p = OutDosage + i*n;
+			memset(p, 0, sizeof(double)*n);
+			for (size_t h1=0; h1 < n; h1++)
+			{
+				p[h1] += 2 * (*s++);  // expected hom. dosage
+				for (size_t h2=h1+1; h2 < n; h2++)
+				{
+					const double v = *s++;
+					p[h1] += v; p[h2] += v;
+				}
+			}
+		}
+		if (OutProbArray)  // probabilities for all allele pairs
+		{
 			memcpy(OutProbArray+i*nn, &pred._SumPostProb[0], sizeof(double)*nn);
-		if (OutMatching) OutMatching[i] = match_prob;
+		}
 
 		Progress.Forward(1, verbose);
-		if (idx == 0) CheckInterrupt();  // run on the baseline thread
+		if (th_idx == 0) CheckInterrupt();  // run on the baseline thread
 	}
 	PARALLEL_END
-	_Done_PredictHLA();
 }
 
 void CAttrBag_Model::_PredictHLA(CAlg_Prediction &pred, const int geno[],
@@ -2389,7 +2430,7 @@ void CAttrBag_Model::_GetSNPWeights(int OutSNPWeight[])
 	}
 }
 
-void CAttrBag_Model::_Init_PredictHLA()
+void CAttrBag_Model::_Init_GPU_PredHLA()
 {
 	if (GPUExtProcPtr && *GPUExtProcPtr->predict_init)
 	{
@@ -2416,7 +2457,7 @@ void CAttrBag_Model::_Init_PredictHLA()
 	}
 }
 
-void CAttrBag_Model::_Done_PredictHLA()
+void CAttrBag_Model::_Done_GPU_PredHLA()
 {
 	if (GPUExtProcPtr && *GPUExtProcPtr->predict_done)
 	{

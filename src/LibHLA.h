@@ -611,16 +611,17 @@ namespace HLA_LIB
 		 *  \param genomat       genotype matrix
 		 *  \param n_samp        the number of samples in genomat
 		 *  \param vote_method   1: average posterior prob, 2: majority voting
-		 *  \param OutH1         the first HLA allele per sample
-		 *  \param OutH2         the second HLA allele per sample
-		 *  \param OutMaxProb    the posterior prob. of the best-guess HLA genotypes per sample
-		 *  \param OutProbArray  the posterior prob. of all HLA genotypes per sample
-		 *  \param OutMatching   the sum of prior prob. per sample
+		 *  \param OutH1         the first HLA allele per sample (can be NULL)
+		 *  \param OutH2         the second HLA allele per sample (can be NULL)
+		 *  \param OutMaxProb    the posterior prob. of the best-guess HLA genotypes per sample (can be NULL)
+		 *  \param OutMatching   the sum of prior prob. per sample (can be NULL)
+		 *  \param OutDosage     the dosage for each HLA allele (can be NULL)
+		 *  \param OutProbArray  the posterior prob. of all HLA genotypes per sample (can be NULL)
 		 *  \param ShowInfo      if true, show information
 		**/
 		void PredictHLA(const int *genomat, int n_samp, int vote_method,
-			int OutH1[], int OutH2[], double OutMaxProb[],
-			double OutMatching[], double OutProbArray[], bool verbose);
+			int OutH1[], int OutH2[], double OutMaxProb[], double OutMatching[],
+			double OutDosage[], double OutProbArray[], bool verbose);
 
 		// remove all individual classifiers in the model
 		void ClearClassifierList() { _ClassifierList.clear(); }
@@ -656,11 +657,32 @@ namespace HLA_LIB
 		/// get weight with respect to the SNP frequencies in the model for missing SNPs
 		void _GetSNPWeights(int OutSNPWeight[]);
 
-		void _Init_PredictHLA();
-		void _Done_PredictHLA();
+		/// initialize GPU calculation
+		void _Init_GPU_PredHLA();
+		/// finalize GPU calculation
+		void _Done_GPU_PredHLA();
 
 	private:
+		/// SNP genotypes for a GPU buffer
 		std::vector<TGenotype> gpu_geno_buf;
+
+		/// try-final block for GPU training
+		struct try_final_train_gpu
+		{
+		public:
+			try_final_train_gpu(CAttrBag_Model *m);
+			~try_final_train_gpu();
+		};
+
+		/// try-final block for _Init_GPU_PredHLA() and _Done_GPU_PredHLA()
+		struct try_final_pred_gpu
+		{
+		public:
+			try_final_pred_gpu(CAttrBag_Model *m);
+			~try_final_pred_gpu();
+		private:
+			CAttrBag_Model *owner;
+		};
 	};
 
 

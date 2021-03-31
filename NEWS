@@ -1,7 +1,7 @@
-CHANGES IN VERSION 1.27.4
+CHANGES IN VERSION 1.27.7
 -------------------------
 
-    o 
+    o `hlaPredict()` returns the dosage of HLA alleles with type="dosage"
 
 
 CHANGES IN VERSION 1.26.1
