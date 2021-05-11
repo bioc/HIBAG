@@ -32,6 +32,12 @@
 #include <RcppParallel.h>
 #include <tbb/parallel_for.h>
 
+#ifdef _WIN32
+#   ifdef RCPP_PARALLEL_USE_TBB
+#       undef RCPP_PARALLEL_USE_TBB
+#   endif
+#   define RCPP_PARALLEL_USE_TBB 0
+#endif
 
 using namespace std;
 using namespace HLA_LIB;
@@ -648,7 +654,9 @@ SEXP HIBAG_Predict_Resp(SEXP Model, SEXP GenoMat, SEXP NumSamp,
 	const int midx = Rf_asInteger(Model);
 	const int nSamp = Rf_asInteger(NumSamp);
 	const int vote_method = Rf_asInteger(VoteMethod);
+#if RCPP_PARALLEL_USE_TBB
 	const int nthread = Rf_asInteger(NThread);
+#endif
 	const bool verbose = Rf_asLogical(Verbose)==TRUE;
 
 	CORE_TRY
@@ -698,7 +706,9 @@ SEXP HIBAG_Predict_Dosage(SEXP Model, SEXP GenoMat, SEXP NumSamp,
 	const int midx = Rf_asInteger(Model);
 	const int nSamp = Rf_asInteger(NumSamp);
 	const int vote_method = Rf_asInteger(VoteMethod);
+#if RCPP_PARALLEL_USE_TBB
 	const int nthread = Rf_asInteger(NThread);
+#endif
 	const bool verbose = Rf_asLogical(Verbose)==TRUE;
 
 	CORE_TRY
@@ -750,7 +760,9 @@ SEXP HIBAG_Predict_Resp_Prob(SEXP Model, SEXP GenoMat, SEXP NumSamp,
 	const int midx = Rf_asInteger(Model);
 	const int nSamp = Rf_asInteger(NumSamp);
 	const int vote_method = Rf_asInteger(VoteMethod);
+#if RCPP_PARALLEL_USE_TBB
 	const int nthread = Rf_asInteger(NThread);
+#endif
 	const bool verbose = Rf_asLogical(Verbose)==TRUE;
 
 	CORE_TRY
