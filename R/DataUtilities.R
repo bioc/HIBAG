@@ -1075,22 +1075,24 @@ hlaLociInfo <- function(assembly =
 # Limit the resolution of HLA alleles
 #
 
-hlaAlleleDigit <- function(obj, max.resolution="4-digit", rm.suffix=FALSE)
+hlaAlleleDigit <- function(obj, max.resolution=NA_character_, rm.suffix=FALSE)
 {
     # check
     stopifnot(inherits(obj, "hlaAlleleClass") | is.character(obj))
-    stopifnot(is.logical(rm.suffix))
+    stopifnot(is.logical(rm.suffix), length(rm.suffix)==1L)
     if (is.character(obj))
         stopifnot(is.vector(obj))
+    stopifnot(is.character(max.resolution), length(max.resolution)==1L)
     reslist <- c("2-digit", "1-field", "4-digit", "2-field", "6-digit",
-        "3-filed", "8-digit", "4-field", "allele", "protein", "full", "")
-    if (!(max.resolution %in% reslist))
+        "3-field", "8-digit", "4-field", "allele", "protein",
+        "full", "none", "")
+    if (!isTRUE(max.resolution %in% reslist))
     {
         stop("'max.resolution' should be one of ",
             paste(sQuote(reslist), collapse=", "), ".")
     }
 
-    if (!(max.resolution %in% c("full", "")))
+    if (!(max.resolution %in% c("full", "none", "")))
     {
         if (is.character(obj))
         {
@@ -1098,35 +1100,20 @@ hlaAlleleDigit <- function(obj, max.resolution="4-digit", rm.suffix=FALSE)
             names(len) <- c("2-digit", "1-field", "4-digit", "2-field",
                 "6-digit", "3-field", "8-digit", "4-field", "allele", "protein")
             maxlen <- len[[as.character(max.resolution)]]
+            ii <- seq_len(maxlen)
 
-            obj <- sapply(strsplit(obj, ":"), FUN =
-                    function(s, idx) {
-                        if (any(is.na(s)))
-                        {
-                            NA
-                        } else {
-                            if (length(idx) < length(s)) s <- s[idx]
-                            if (length(idx) == length(s))
-                            {
-                                if (rm.suffix & (nchar(s[length(s)])>0L))
-                                {
-                                    z <- unlist(strsplit(s[length(s)], ""))
-                                    for (i in 1L:length(z))
-                                    {
-                                        if (!(z[i] %in% as.character(0:9)))
-                                        {
-                                            if (i > 1L)
-                                                z <- z[1L:(i-1L)]
-                                            break
-                                        }
-                                    }
-                                    s[length(s)] <- paste(z, collapse="")
-                                }
-                            }
-                            paste(s, collapse=":")
-                        }
-                    },
-                idx = 1L:maxlen)
+            obj <- sapply(strsplit(obj, ":"), FUN = function(s)
+            {
+                if (!anyNA(s))
+                {
+                    if (length(s) > length(ii)) s <- s[ii]
+                    if (isTRUE(rm.suffix))
+                        s[length(s)] <- gsub("\\D+$", "", s[length(s)])
+                    paste(s, collapse=":")
+                } else {
+                    NA_character_
+                }
+            })
         } else {
             rv <- list(locus = obj$locus,
                 pos.start = obj$pos.start, pos.end = obj$pos.end,
@@ -1136,8 +1123,6 @@ hlaAlleleDigit <- function(obj, max.resolution="4-digit", rm.suffix=FALSE)
                     stringsAsFactors=FALSE),
                 assembly = obj$assembly
             )
-            if ("prob" %in% names(obj$value))
-                rv$value$prob <- obj$value$prob
             class(rv) <- "hlaAlleleClass"
             obj <- rv
         }
@@ -1181,8 +1166,15 @@ hlaAllele <- function(sample.id, H1, H2, max.resolution="", locus="any",
     stopifnot(is.vector(H2) & is.character(H2))
     stopifnot(length(sample.id) == length(H1))
     stopifnot(length(sample.id) == length(H2))
-    stopifnot(max.resolution %in% c("2-digit", "4-digit", "6-digit",
-        "8-digit", "allele", "protein", "2", "4", "6", "8", "full", ""))
+    stopifnot(is.character(max.resolution), length(max.resolution)==1L)
+    reslist <- c("2-digit", "1-field", "4-digit", "2-field", "6-digit",
+        "3-field", "8-digit", "4-field", "allele", "protein",
+        "full", "none", "")
+    if (!isTRUE(max.resolution %in% reslist))
+    {
+        stop("'max.resolution' should be one of ",
+            paste(sQuote(reslist), collapse=", "), ".")
+    }
 
     assembly <- .hla_assembly(assembly)
     HLAinfo <- hlaLociInfo(assembly)
@@ -2569,23 +2561,44 @@ hlaReportPlot <- function(PredHLA=NULL, TrueHLA=NULL, model=NULL,
 # Convert HLA alleles to a VCF file for dosages
 #
 
-hlaAlleleToVCF <- function(hla, outfn, DS=TRUE, verbose=TRUE)
+hlaAlleleToVCF <- function(hla, outfn, DS=TRUE, allele.list=FALSE,
+    prob.cutoff=NaN, verbose=TRUE)
 {
     # check
-    stopifnot(inherits(hla, "hlaAlleleClass"))
+    stopifnot(inherits(hla, "hlaAlleleClass") || class(hla)[1L]=="list")
+    if (class(hla)[1L] == "list")
+    {
+        v <- vapply(hla, function(h) inherits(h, "hlaAlleleClass"), TRUE)
+        if (length(v)==0L || !all(v))
+            stop("'hla' should be a hlaAlleleClass object or a list of hlaAlleleClass objects.")
+        hla_lst <- hla
+        hla <- hla_lst[[1L]]
+        s <- hla$value$sample.id
+        for (i in seq_along(hla_lst))
+        {
+            if (!identical(s, hla_lst[[i]]$value$sample.id))
+                stop("'hla[[", i, "]]' has different sample IDs.")
+        }
+    } else {
+        hla_lst <- list(hla)
+    }
     if (!inherits(outfn, "connection"))
         stopifnot(is.character(outfn), length(outfn)==1L, !is.na(outfn))
     stopifnot(is.logical(DS), length(DS)==1L, !is.na(DS))
     stopifnot(is.logical(verbose), length(verbose)==1L, !is.na(verbose))
     hasDS <- !is.null(hla$dosage) && DS
+    stopifnot(is.logical(allele.list) || is.character(allele.list))
+    stopifnot(is.numeric(prob.cutoff), length(prob.cutoff)==1L)
+    if (is.null(hla$value$prob) && !is.finite(prob.cutoff))
+    {
+        warning("'prob.cutoff' is not used since no probability information.")
+        prob.cutoff <- NaN
+    }
 
-    # information
-    hs <- hlaUniqueAllele(hla)
     if (verbose)
     {
         cat("Convert to dosage VCF format:\n")
         cat("    # of samples: ", NROW(hla$value), "\n", sep="")
-        cat("    # of unique HLA alleles: ", length(hs), "\n", sep="")
         if (inherits(outfn, "connection"))
             cat("    output: <connection>\n")
         else
@@ -2595,7 +2608,15 @@ hlaAlleleToVCF <- function(hla, outfn, DS=TRUE, verbose=TRUE)
     # create a file if needed
     if (is.character(outfn))
     {
-        outfn <- file(outfn, "wt")
+        if (grepl("\\.gz$", outfn, ignore.case=TRUE))
+        {
+            outfn <- gzfile(outfn, "wt")
+        } else if (grepl("\\.xz$", outfn, ignore.case=TRUE))
+        {
+            outfn <- xzfile(outfn, "wt")
+        } else {
+            outfn <- file(outfn, "wt")
+        }
         on.exit(close(outfn))
     }
 
@@ -2603,7 +2624,8 @@ hlaAlleleToVCF <- function(hla, outfn, DS=TRUE, verbose=TRUE)
     ss <- c(
         '##fileformat=VCFv4.0',
         paste0("##fileDate=", format(Sys.time(), "%Y%m%d")),
-        '##source=HIBAG',
+        paste0('##source=HIBAG_v', packageVersion("HIBAG")),
+        paste0('##reference=', hla$assembly),
         '##FILTER=<ID=PASS,Description="All filters passed">',
         '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">',
         if (hasDS)
@@ -2615,35 +2637,78 @@ hlaAlleleToVCF <- function(hla, outfn, DS=TRUE, verbose=TRUE)
     )
     writeLines(ss, outfn)
 
-    # write to VCF for each allele
-    pos <- as.character(round(mean(c(hla$pos.start, hla$pos.end), na.rm=TRUE)))
-    if (is.na(pos)) pos <- "."
-    if (hasDS)
-        ii <- match(hla$value$sample.id, colnames(hla$dosage))
-    for (h in hs)
+    # for-loop each hlaAlleleClass
+    for (hla_i in seq_along(hla_lst))
     {
-        ss <- c("6", pos, paste0(.hla_gene_name_string(hla$locus), "*", h),
-            "A", paste0("P_", gsub("[^a-zA-Z0-9]", "", h)), ".", "PASS", ".",
-            ifelse(hasDS, "GT:DS", "GT"))
-        h1 <- as.integer(hla$value["allele1"]==h)
-        if (anyNA(h1)) h1[is.na(h1)] <- "."
-        h2 <- as.integer(hla$value["allele2"]==h)
-        if (anyNA(h2)) h2[is.na(h2)] <- "."
-        s <- paste(h1, h2, sep="/")
-        if (hasDS)
+        hla <- hla_lst[[hla_i]]
+        # allele information
+        hs <- hlaUniqueAllele(hla)
+        if (isTRUE(allele.list))
         {
-            i <- match(h, rownames(hla$dosage))
-            ds <- as.vector(hla$dosage[i, ii])
-            x <- is.na(ds)
-            ds <- format(ds, digits=5)
-            if (any(x)) ds[x] <- "."
-            s <- paste(s, ds, sep=":")
+            if (is.matrix(hla$dosage))
+                hs <- hlaUniqueAllele(rownames(hla$dosage))
+        } else if (is.character(allele.list)) {
+            if (anyNA(allele.list))
+                stop("'allele.list' should not contain NA.")
+            hs <- unique(allele.list)
         }
-        ss <- c(ss, s)
-        writeLines(paste(ss, collapse="\t"), outfn)
+        if (verbose)
+        {
+            if (length(hla_lst) > 1L)
+                cat("Input object ", hla_i, ":\n", sep="")
+            cat("    # of unique HLA alleles: ", length(hs), "\n", sep="")
+        }
+
+        # sample selection
+        na_sel <- FALSE
+        if (is.finite(prob.cutoff))
+        {
+            na_sel <- hla$value$prob < prob.cutoff
+            na_sel[is.na(na_sel)] <- FALSE
+            if (verbose)
+            {
+                cat("    # of samples (set to be missing): ",
+                    sum(na_sel), "\n", sep="")
+            }
+        }
+
+        # write to VCF for each allele
+        pos <- as.character(round(mean(c(hla$pos.start, hla$pos.end), na.rm=TRUE)))
+        if (is.na(pos)) pos <- "."
+        if (hasDS)
+            ii <- match(hla$value$sample.id, colnames(hla$dosage))
+        for (h in hs)
+        {
+            ss <- c("6", pos, paste0(.hla_gene_name_string(hla$locus), "*", h),
+                "A", paste0("P_", gsub("[^a-zA-Z0-9]", "", h)), ".", "PASS",
+                ".", ifelse(hasDS, "GT:DS", "GT"))
+            h1 <- as.integer(hla$value["allele1"]==h)
+            if (anyNA(h1)) h1[is.na(h1)] <- "."
+            h2 <- as.integer(hla$value["allele2"]==h)
+            if (anyNA(h2)) h2[is.na(h2)] <- "."
+            s <- paste(h1, h2, sep="/")
+            s[na_sel] <- "./."
+            if (hasDS && !is.null(hla$dosage))
+            {
+                i <- match(h, rownames(hla$dosage))[1L]  # use the first
+                if (!is.na(i))
+                {
+                    ds <- as.vector(hla$dosage[i, ii])
+                    ds[na_sel] <- NaN
+                    x <- is.na(ds)
+                    ds <- format(ds, digits=5)
+                    if (any(x)) ds[x] <- "."
+                } else {
+                    ds <- rep(".", length(ii))
+                }
+                s <- paste(s, ds, sep=":")
+            }
+            ss <- c(ss, s)
+            writeLines(paste(ss, collapse="\t"), outfn)
+        }
     }
 
-    invisible()
+    invisible(outfn)
 }
 
 
