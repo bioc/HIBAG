@@ -5,7 +5,7 @@
 #   HIBAG -- HLA Genotype Imputation with Attribute Bagging
 #
 # HIBAG R package, HLA Genotype Imputation with Attribute Bagging
-# Copyright (C) 2011-2022   Xiuwen Zheng (zhengx@u.washington.edu)
+# Copyright (C) 2011-2024   Xiuwen Zheng (zhengx@u.washington.edu)
 # All rights reserved.
 #
 # This program is free software: you can redistribute it and/or modify
@@ -823,7 +823,8 @@ hlaPredict <- function(object, snp, cl=FALSE,
 #
 
 hlaPredMerge <- function(..., weight=NULL, equivalence=NULL, use.matching=TRUE,
-    ret.dosage=TRUE, ret.postprob=TRUE, max.resolution="", rm.suffix=FALSE)
+    ret.dosage=TRUE, ret.postprob=FALSE, max.resolution="", rm.suffix=FALSE,
+    verbose=TRUE)
 {
     # check "..."
     pdlist <- list(...)
@@ -843,6 +844,13 @@ hlaPredMerge <- function(..., weight=NULL, equivalence=NULL, use.matching=TRUE,
                 "'hlaPredict(..., type=\"response+prob\")'.")
         }
     }
+    stopifnot(is.logical(verbose), length(verbose)==1L)
+    if (verbose)
+    {
+        cat("Aggregate ", length(pdlist), " set",
+            if (length(pdlist) > 1L) "s" else "",
+            " of predictions:\n", sep="")
+    }
 
     # check equivalence
     stopifnot(is.null(equivalence) | is.data.frame(equivalence))
@@ -860,6 +868,8 @@ hlaPredMerge <- function(..., weight=NULL, equivalence=NULL, use.matching=TRUE,
     stopifnot(is.character(max.resolution), length(max.resolution)==1L)
     use_resolution <- !identical(max.resolution, "") ||
         !identical(rm.suffix, FALSE)
+    if (verbose && !identical(max.resolution, ""))
+        cat("    Resolution: ", max.resolution, "\n", sep="")
 
     # check locus and sample.id
     samp.id <- pdlist[[1L]]$value$sample.id
@@ -924,11 +934,20 @@ hlaPredMerge <- function(..., weight=NULL, equivalence=NULL, use.matching=TRUE,
     for (i in seq_along(pdlist))
     {
         h <- unique(unlist(strsplit(rownames(pdlist[[i]]$postprob), "/")))
-        hla.allele <- unique(c(hla.allele, replace(h)))
+        nh <- replace(h)
+        hla.allele <- unique(c(hla.allele, nh))
+        if (verbose)
+        {
+            cat("    ", i, ". # of unique alleles: ", length(h), sep="")
+            if (!is.null(equivalence)) cat(" ==> ", length(nh))
+            cat("\n")
+        }
     }
     hla.allele <- hlaUniqueAllele(hla.allele)
     n.hla <- length(hla.allele)
     n.samp <- length(samp.id)
+    if (verbose)
+        cat("# of unique allele in the merged set = ", n.hla, "\n", sep="")
 
     prob <- matrix(0.0, nrow=n.hla*(n.hla+1L)/2L, ncol=n.samp)
     m <- outer(hla.allele, hla.allele, paste, sep="/")
@@ -939,12 +958,16 @@ hlaPredMerge <- function(..., weight=NULL, equivalence=NULL, use.matching=TRUE,
     # matching probabilities
     has.matching <- all(
         vapply(pdlist, function(x) !is.null(x$value$matching), TRUE))
-    if (has.matching) has.matching <- 0
+    if (has.matching)
+    {
+        # sum(i, weight[i] * pdlist[[i]]$value$matching)
+        has.matching <- .Call(HIBAG_SumList, weight,
+            lapply(pdlist, function(x) x$value$matching))
+    }
 
     # for-loop
     for (i in seq_along(pdlist))
     {
-        w <- weight[i]
         p <- pdlist[[i]]$postprob
         h <- replace(unlist(strsplit(rownames(p), "/", fixed=TRUE)))
         h1 <- h[seq(1L, length(h), 2L)]
@@ -953,17 +976,17 @@ hlaPredMerge <- function(..., weight=NULL, equivalence=NULL, use.matching=TRUE,
         j2 <- match(paste(h2, h1, sep="/"), m)
         j1[is.na(j1)] <- j2[is.na(j1)]
         stopifnot(!anyNA(j1))  # check
-        if (use.matching)
-            p <- sweep(p, 2L, pdlist[[i]]$value$matching, "*")
-        p <- p * w
-        for (j in seq_along(j1))
-            prob[j1[j], ] <- prob[j1[j], ] + p[j, ]
-        if (is.numeric(has.matching))
-            has.matching <- has.matching + w * pdlist[[i]]$value$matching
+        # update probabilities, equal R code:
+        # if (use.matching)
+        #     p <- sweep(p, 2L, pdlist[[i]]$value$matching, "*")
+        # prob[j1, ] <- prob[j1, ] + p * weight[i]
+        .Call(HIBAG_UpdateAddProbW, prob, j1, p, weight[i],
+            if (use.matching) pdlist[[i]]$value$matching else NULL)
     }
 
     # normalize prob
-    prob <- sweep(prob, 2L, colSums(prob), "/")
+    # equal: prob <- sweep(prob, 2L, colSums(prob), "/")
+    .Call(HIBAG_NormalizeProb, prob)
     pb <- apply(prob, 2L, max)
     pt <- unlist(strsplit(m[apply(prob, 2L, which.max)], "/", fixed=TRUE))
     assembly <- pdlist[[1L]]$assembly
